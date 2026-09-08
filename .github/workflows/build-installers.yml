@@ -1,0 +1,93 @@
+# 세 OS의 설치파일을 만든다.
+#
+# macOS 설치파일은 macOS에서만 만들 수 있고 Windows도 사실상 그렇다.
+# 그래서 각 OS 러너에서 따로 빌드해 태그를 밀 때 Release에 모아 올린다.
+#
+#   태그(v로 시작) 밀기  → 세 OS 빌드 + Release에 첨부
+#   수동 실행           → 세 OS 빌드, 결과물은 Artifacts에만 (릴리스는 안 만듦)
+name: 설치파일 빌드
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+# 같은 태그로 두 번 밀렸을 때 앞의 실행을 접는다
+concurrency:
+  group: installers-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write        # Release 생성과 파일 첨부에 필요
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false   # 한 OS가 깨져도 나머지는 끝까지 간다
+      matrix:
+        include:
+          - os: ubuntu-latest
+            label: Linux (AppImage)
+            args: --linux
+            files: dist/*.AppImage
+          - os: windows-latest
+            label: Windows (exe)
+            args: --win
+            files: dist/*.exe
+          - os: macos-latest
+            label: macOS (dmg)
+            # 러너는 Apple Silicon이라 그냥 두면 arm64만 나온다.
+            # 인텔 맥 쓰는 사람도 있으므로 둘 다 만든다
+            args: --mac --x64 --arm64
+            files: dist/*.dmg
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # 이 앱은 런타임 npm 의존성이 없다 (pdf.js와 pdf-lib는 CDN).
+      # 그래서 package.json을 건드리지 않고 빌드 도구만 그때그때 받는다.
+      # 버전을 박아두는 이유: electron-builder 메이저가 올라가면 어느 날 조용히 깨진다
+      - name: 빌드 도구 설치
+        run: npm i --no-save electron@44.2.0 electron-builder@26.15.3
+
+      - name: 설치파일 만들기
+        run: npx electron-builder ${{ matrix.args }} --publish never
+        env:
+          # 서명 인증서가 없다. 자동 탐색을 켜두면 macOS 빌드가 거기서 멈춘다.
+          # 서명 없이 배포하면 첫 실행에 경고가 뜨는데, 그건 README에 적어뒀다
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.os }}
+          path: ${{ matrix.files }}
+          if-no-files-found: error    # 빈 결과를 성공으로 넘기지 않는다
+
+  release:
+    name: Release에 올리기
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: 올리기
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          # 이미 있으면 그대로 쓴다 (재실행해도 깨지지 않게)
+          gh release view "$tag" >/dev/null 2>&1 || \
+            gh release create "$tag" --title "$tag" --generate-notes
+          # 파일명에 한글과 공백이 들어가므로 -print0 으로 넘긴다
+          find artifacts -type f -print0 | xargs -0 gh release upload "$tag" --clobber

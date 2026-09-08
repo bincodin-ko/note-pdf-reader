@@ -64,6 +64,22 @@ npm run dist     # 설치파일 생성 → dist/ 폴더
 `npm run dist`를 돌린 운영체제의 설치파일이 나옵니다.
 Windows에서는 `.exe`, macOS에서는 `.dmg`, Linux에서는 `.AppImage`.
 
+### 세 OS 것을 한 번에 (GitHub Actions)
+
+macOS 설치파일은 macOS에서만 만들 수 있어서, 한 대로는 세 개를 다 못 만듭니다.
+`.github/workflows/build-installers.yml`이 각 OS 러너에서 따로 빌드해 줍니다.
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0     # 세 OS 빌드 → Release에 첨부
+```
+
+태그 없이 동작만 확인하고 싶으면 Actions 탭에서 수동 실행(Run workflow)하면 됩니다.
+이때는 Release를 만들지 않고 결과물을 Artifacts에만 올립니다.
+
+빌드 도구(electron, electron-builder)는 워크플로가 버전을 박아 직접 받습니다.
+`package.json`에 의존성을 넣지 않은 건 이 앱에 런타임 npm 의존성이 없기 때문입니다.
+
 `main.js`가 하는 일은 세 가지뿐입니다 — 빈 포트를 찾아 `server.js`를 앱 안에서 띄우고,
 그 주소를 창으로 열고, Claude Code CLI가 있는지 확인해 없으면 안내합니다.
 `server.js`와 `public/`은 그대로 재사용하므로 `npm run web`으로 터미널에서 돌리던 방식도 계속 됩니다.
