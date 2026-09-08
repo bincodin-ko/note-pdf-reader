@@ -33,7 +33,11 @@ function hasClaudeCli() {
 }
 
 async function checkBackend() {
-  if (process.env.ANTHROPIC_API_KEY) return;          // API 모드면 확인할 것 없음
+  // server.js와 같은 기준으로 판단해야 한다.
+  // 키가 있다는 것만으로는 API 모드가 아니므로, 그때 CLI 확인을 건너뛰면
+  // 실제로는 claude -p로 도는데 설치 안내만 사라져 "이유 없이 AI만 안 되는" 상태가 된다.
+  const useApi = process.env.CLAUDE_USE_API === "1" && !!process.env.ANTHROPIC_API_KEY;
+  if (useApi) return;                                 // API 모드면 CLI가 없어도 된다
   if (await hasClaudeCli()) return;
 
   const r = await dialog.showMessageBox({
