@@ -1,0 +1,1305 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>오려둔 공책</title>
+<script src="storage.js"></script>
+</head>
+<body>
+<div id="root">
+<style>
+  :root {
+    --ink: #141d27;
+    --ink-2: #1b2836;
+    --ink-3: #22323f;
+    --rule: #2f4457;
+    --paper: #ffffff;
+    --text: #dfe8f0;
+    --muted: #8ba0b4;
+    --marker: #ffd83d;
+    --marker-soft: rgba(255, 216, 61, 0.22);
+    --danger: #ff8b6b;
+  }
+
+  * { box-sizing: border-box; }
+
+  #root {
+    background: var(--ink);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo",
+      "Pretendard", "Noto Sans KR", "Malgun Gothic", sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    font-size: 15px;
+    line-height: 1.6;
+  }
+
+  .bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--rule);
+    background: var(--ink-2);
+    flex-wrap: wrap;
+  }
+
+  .mark {
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin-right: 4px;
+    font-size: 15px;
+  }
+  .mark span { color: var(--marker); }
+
+  button {
+    font: inherit;
+    font-size: 14px;
+    color: var(--text);
+    background: var(--ink-3);
+    border: 1px solid var(--rule);
+    border-radius: 7px;
+    padding: 7px 12px;
+    cursor: pointer;
+  }
+  button:hover:not(:disabled) { border-color: var(--marker); }
+  button:disabled { opacity: 0.4; cursor: default; }
+  button:focus-visible { outline: 2px solid var(--marker); outline-offset: 2px; }
+
+  .primary {
+    background: var(--marker);
+    color: #1c1500;
+    border-color: var(--marker);
+    font-weight: 650;
+  }
+
+  .pageno {
+    font-variant-numeric: tabular-nums;
+    color: var(--muted);
+    min-width: 74px;
+    text-align: center;
+    font-size: 14px;
+  }
+
+  .spacer { flex: 1; }
+
+  .toggle {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 13px;
+    color: var(--muted);
+    cursor: pointer;
+    user-select: none;
+  }
+  .toggle input { accent-color: var(--marker); width: 15px; height: 15px; }
+
+  .main {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+  }
+
+  .stage {
+    flex: 1;
+    overflow: auto;
+    padding: 20px;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    min-width: 0;
+  }
+
+  .empty {
+    margin: auto;
+    text-align: center;
+    max-width: 380px;
+    color: var(--muted);
+  }
+  .empty h2 {
+    color: var(--text);
+    font-size: 19px;
+    font-weight: 650;
+    margin: 0 0 10px;
+    letter-spacing: -0.01em;
+  }
+  .empty p { margin: 0 0 18px; font-size: 14px; }
+
+  .pagewrap {
+    position: relative;
+    background: var(--paper);
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
+    line-height: 0;
+  }
+  canvas { display: block; }
+
+  .layer {
+    position: absolute;
+    inset: 0;
+    cursor: crosshair;
+    touch-action: none;
+  }
+
+  .sel {
+    position: absolute;
+    border: 2px solid var(--marker);
+    background: var(--marker-soft);
+    pointer-events: none;
+  }
+
+  .pin {
+    position: absolute;
+    background: var(--marker);
+    color: #1c1500;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    width: 21px;
+    height: 21px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    line-height: 1;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  }
+
+  .pinnote {
+    position: absolute;
+    background: #fff8dc;
+    color: #241d00;
+    border-left: 3px solid var(--marker);
+    border-radius: 3px;
+    padding: 7px 9px;
+    font-size: 12px;
+    line-height: 1.45;
+    width: 190px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+    z-index: 5;
+  }
+  .pinnote textarea {
+    width: 100%;
+    border: 0;
+    background: transparent;
+    font: inherit;
+    color: inherit;
+    resize: none;
+    outline: none;
+    overflow: hidden;
+  }
+  .pinnote .pinbtns {
+    display: flex;
+    gap: 8px;
+    margin-top: 5px;
+    font-size: 11px;
+  }
+  .pinnote .pinbtns button {
+    padding: 2px 7px;
+    font-size: 11px;
+    background: rgba(0, 0, 0, 0.06);
+    border-color: rgba(0, 0, 0, 0.15);
+    color: #241d00;
+    border-radius: 4px;
+  }
+
+  .notes {
+    width: 350px;
+    flex-shrink: 0;
+    border-left: 1px solid var(--rule);
+    background: var(--ink-2);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .noteshead {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--rule);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .noteshead strong { font-size: 14px; font-weight: 650; }
+  .noteshead .count { color: var(--muted); font-size: 13px; }
+
+  .cards { flex: 1; overflow-y: auto; padding: 12px; }
+
+  .hint {
+    color: var(--muted);
+    font-size: 13px;
+    padding: 22px 8px;
+    text-align: center;
+    line-height: 1.7;
+  }
+
+  .card {
+    background: var(--ink-3);
+    border: 1px solid var(--rule);
+    border-radius: 9px;
+    overflow: hidden;
+    margin-bottom: 12px;
+  }
+  .card img {
+    width: 100%;
+    display: block;
+    background: #fff;
+    border-bottom: 1px solid var(--rule);
+  }
+  .cardbody { padding: 10px 12px 12px; }
+  .cardmeta {
+    font-size: 12px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    margin-bottom: 6px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .cardmeta button {
+    padding: 2px 7px;
+    font-size: 11px;
+    border-radius: 5px;
+    color: var(--muted);
+  }
+  .cardtext { font-size: 14px; white-space: pre-wrap; }
+  .cardtext.loading { color: var(--muted); }
+
+  .cardedit label {
+    display: block;
+    font-size: 12px;
+    color: var(--muted);
+    margin: 8px 0 4px;
+  }
+  .cardedit input,
+  .cardedit textarea {
+    width: 100%;
+    font: inherit;
+    font-size: 14px;
+    color: var(--text);
+    background: var(--ink);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 7px 9px;
+    resize: vertical;
+  }
+  .cardedit input:focus,
+  .cardedit textarea:focus { outline: none; border-color: var(--marker); }
+  .cardedit .editbtns { display: flex; gap: 8px; margin-top: 10px; }
+  .cardedit .editbtns button { padding: 5px 14px; font-size: 13px; }
+
+  .ask {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px dashed var(--rule);
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .askrow { display: flex; gap: 8px; margin-top: 7px; }
+  .askrow button { padding: 5px 14px; font-size: 13px; }
+
+  .done {
+    margin-top: 10px;
+    padding-top: 9px;
+    border-top: 1px dashed var(--rule);
+    font-size: 12px;
+    color: var(--marker);
+  }
+
+  .more { margin-top: 9px; }
+  .more button { font-size: 13px; padding: 5px 11px; }
+
+  .foot {
+    padding: 10px 12px;
+    border-top: 1px solid var(--rule);
+    display: flex;
+    gap: 8px;
+  }
+  .foot button { flex: 1; font-size: 13px; padding: 8px; }
+
+  .status {
+    padding: 6px 14px;
+    font-size: 13px;
+    color: var(--muted);
+    border-top: 1px solid var(--rule);
+    background: var(--ink-2);
+    min-height: 31px;
+  }
+  .status.err { color: var(--danger); }
+
+  .veil {
+    position: fixed;
+    inset: 0;
+    background: rgba(8, 12, 17, 0.72);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    z-index: 50;
+  }
+  .sheet {
+    background: var(--ink-2);
+    border: 1px solid var(--rule);
+    border-radius: 12px;
+    width: min(620px, 100%);
+    max-height: 84vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .sheet h3 {
+    margin: 0;
+    padding: 14px 16px;
+    font-size: 15px;
+    font-weight: 650;
+    border-bottom: 1px solid var(--rule);
+  }
+  .sheet .sbody { padding: 14px 16px; overflow: auto; }
+  .sheet textarea {
+    width: 100%;
+    height: 300px;
+    font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--text);
+    background: var(--ink);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 10px;
+    resize: vertical;
+  }
+  .sheet .note { font-size: 13px; color: var(--muted); margin: 0 0 10px; }
+  .sheet .sfoot {
+    display: flex;
+    gap: 8px;
+    padding: 12px 16px;
+    border-top: 1px solid var(--rule);
+    align-items: center;
+  }
+  .dl {
+    display: inline-block;
+    background: var(--marker);
+    color: #1c1500;
+    font-weight: 650;
+    font-size: 14px;
+    text-decoration: none;
+    padding: 8px 14px;
+    border-radius: 7px;
+  }
+  .sheet .sfoot .spacer { flex: 1; }
+
+  .pin.manual { background: #9fd8ff; }
+
+  @media (max-width: 820px) {
+    .main { flex-direction: column; }
+    .notes { width: auto; border-left: 0; border-top: 1px solid var(--rule); max-height: 46vh; }
+    .stage { padding: 12px; }
+  }
+</style>
+
+<div class="bar">
+  <div class="mark">오려둔 <span>공책</span></div>
+  <button id="open">PDF 열기</button>
+  <input type="file" id="file" accept="application/pdf" hidden />
+  <button id="prev" disabled>←</button>
+  <span class="pageno" id="pageno">– / –</span>
+  <button id="next" disabled>→</button>
+  <button id="zoomout" disabled>축소</button>
+  <button id="zoomin" disabled>확대</button>
+  <div class="spacer"></div>
+  <label class="toggle">
+    <input type="checkbox" id="auto" />
+    이번 수업은 묻지 말고 자동으로 넣기
+  </label>
+</div>
+
+<div class="main">
+  <div class="stage" id="stage">
+    <div class="empty" id="empty">
+      <h2>강의자료를 열고 궁금한 부분에 네모를 그으세요</h2>
+      <p>그은 부분이 잘려서 오른쪽에 정리로 쌓이고, 원하면 그 자리에 한 줄 메모로 붙습니다.</p>
+      <button class="primary" id="open2">PDF 열기</button>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="noteshead">
+      <strong>정리</strong>
+      <span class="count" id="count"></span>
+    </div>
+    <div class="cards" id="cards">
+      <div class="hint">아직 오려낸 것이 없습니다.<br />PDF 위에서 드래그해 보세요.</div>
+    </div>
+    <div class="foot">
+      <button id="expMd" disabled>정리 내보내기</button>
+      <button id="expPdf" disabled>메모 넣은 PDF</button>
+    </div>
+  </div>
+</div>
+
+<div class="status" id="status"></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+  var $ = function (id) { return document.getElementById(id); };
+
+  var state = {
+    pdf: null,
+    bytes: null,          // 내보내기용 원본 사본
+    docKey: null,
+    docName: "",
+    page: 1,
+    pages: 0,
+    scale: 1.25,
+    dpr: Math.min(window.devicePixelRatio || 1, 2),
+    viewport: null,
+    canvas: null,
+    layer: null,
+    cards: [],            // {id,page,img,memo,summary,detail,rect,inserted}
+    openPin: null,
+    renderTask: null
+  };
+
+  function setStatus(msg, isErr) {
+    var el = $("status");
+    el.textContent = msg || "";
+    el.className = "status" + (isErr ? " err" : "");
+  }
+
+  /* ---------- 저장 ---------- */
+
+  function hasStorage() {
+    return typeof window !== "undefined" && window.storage && window.storage.get;
+  }
+
+  function indexKey() { return "capnote:" + state.docKey + ":index"; }
+  function cardKey(id) { return "capnote:" + state.docKey + ":card:" + id; }
+
+  async function saveCard(card) {
+    if (!hasStorage() || !state.docKey) return;
+    try {
+      await window.storage.set(cardKey(card.id), JSON.stringify(card));
+      await window.storage.set(
+        indexKey(),
+        JSON.stringify({ name: state.docName, ids: state.cards.map(function (c) { return c.id; }) })
+      );
+    } catch (e) { /* 저장 실패는 사용을 막지 않음 */ }
+  }
+
+  async function deleteCard(card) {
+    if (!hasStorage() || !state.docKey) return;
+    try {
+      await window.storage.delete(cardKey(card.id));
+      await window.storage.set(
+        indexKey(),
+        JSON.stringify({ name: state.docName, ids: state.cards.map(function (c) { return c.id; }) })
+      );
+    } catch (e) {}
+  }
+
+  async function loadCards() {
+    state.cards = [];
+    if (!hasStorage() || !state.docKey) return;
+    var idx = null;
+    try {
+      var r = await window.storage.get(indexKey());
+      idx = r ? JSON.parse(r.value) : null;
+    } catch (e) { return; }
+    if (!idx || !idx.ids) return;
+    for (var i = 0; i < idx.ids.length; i++) {
+      try {
+        var c = await window.storage.get(cardKey(idx.ids[i]));
+        if (c) state.cards.push(JSON.parse(c.value));
+      } catch (e) {}
+    }
+    renderCards();
+    drawPins();
+  }
+
+  /* ---------- PDF 열기 ---------- */
+
+  $("open").onclick = $("open2").onclick = function () { $("file").click(); };
+
+  $("file").onchange = async function (e) {
+    var f = e.target.files && e.target.files[0];
+    if (!f) return;
+    setStatus("여는 중…");
+    try {
+      var buf = await f.arrayBuffer();
+      state.bytes = buf.slice(0);                       // pdf.js가 원본을 가져가므로 사본 보관
+      state.pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+      state.pages = state.pdf.numPages;
+      state.page = 1;
+      state.docName = f.name.replace(/\.pdf$/i, "");
+      state.docKey = (f.name + ":" + f.size).replace(/[^\w가-힣.:-]/g, "_").slice(0, 120);
+      $("empty").style.display = "none";
+      await loadCards();
+      await renderPage();
+      setStatus(state.docName + " · " + state.pages + "쪽");
+    } catch (err) {
+      setStatus("이 파일을 열지 못했습니다. 다른 PDF로 시도해 보세요.", true);
+    }
+    e.target.value = "";
+  };
+
+  /* ---------- 페이지 그리기 ---------- */
+
+  async function renderPage() {
+    if (!state.pdf) return;
+    var page = await state.pdf.getPage(state.page);
+    var vp = page.getViewport({ scale: state.scale * state.dpr });
+    state.viewport = vp;
+
+    var wrap = document.querySelector(".pagewrap");
+    if (!wrap) {
+      wrap = document.createElement("div");
+      wrap.className = "pagewrap";
+      var cv = document.createElement("canvas");
+      var ly = document.createElement("div");
+      ly.className = "layer";
+      wrap.appendChild(cv);
+      wrap.appendChild(ly);
+      $("stage").appendChild(wrap);
+      state.canvas = cv;
+      state.layer = ly;
+      bindSelection(ly);
+    }
+
+    state.canvas.width = vp.width;
+    state.canvas.height = vp.height;
+    state.canvas.style.width = vp.width / state.dpr + "px";
+    state.canvas.style.height = vp.height / state.dpr + "px";
+    wrap.style.width = vp.width / state.dpr + "px";
+
+    if (state.renderTask) { try { state.renderTask.cancel(); } catch (e) {} }
+    state.renderTask = page.render({ canvasContext: state.canvas.getContext("2d"), viewport: vp });
+    try { await state.renderTask.promise; } catch (e) { return; }
+
+    $("pageno").textContent = state.page + " / " + state.pages;
+    ["prev", "next", "zoomin", "zoomout", "expMd", "expPdf"].forEach(function (id) {
+      $(id).disabled = false;
+    });
+    $("prev").disabled = state.page <= 1;
+    $("next").disabled = state.page >= state.pages;
+    drawPins();
+  }
+
+  $("prev").onclick = function () { if (state.page > 1) { state.page--; closePin(); renderPage(); } };
+  $("next").onclick = function () { if (state.page < state.pages) { state.page++; closePin(); renderPage(); } };
+  $("zoomin").onclick = function () { state.scale = Math.min(3, state.scale + 0.25); renderPage(); };
+  $("zoomout").onclick = function () { state.scale = Math.max(0.5, state.scale - 0.25); renderPage(); };
+
+  /* ---------- 영역 선택 ---------- */
+
+  function bindSelection(layer) {
+    var box = null, start = null;
+
+    layer.addEventListener("pointerdown", function (e) {
+      if (e.target !== layer) return;      // 핀이나 메모를 누른 경우는 제외
+      closePin();
+      layer.setPointerCapture(e.pointerId);
+      var r = layer.getBoundingClientRect();
+      start = { x: e.clientX - r.left, y: e.clientY - r.top };
+      box = document.createElement("div");
+      box.className = "sel";
+      layer.appendChild(box);
+    });
+
+    layer.addEventListener("pointermove", function (e) {
+      if (!start || !box) return;
+      var r = layer.getBoundingClientRect();
+      var x = e.clientX - r.left, y = e.clientY - r.top;
+      box.style.left = Math.min(x, start.x) + "px";
+      box.style.top = Math.min(y, start.y) + "px";
+      box.style.width = Math.abs(x - start.x) + "px";
+      box.style.height = Math.abs(y - start.y) + "px";
+    });
+
+    function finish(e) {
+      if (!start || !box) return;
+      var r = layer.getBoundingClientRect();
+      var x = e.clientX - r.left, y = e.clientY - r.top;
+      var rect = {
+        x: Math.min(x, start.x), y: Math.min(y, start.y),
+        w: Math.abs(x - start.x), h: Math.abs(y - start.y)
+      };
+      box.remove(); box = null; start = null;
+      if (rect.w > 14 && rect.h > 14) capture(rect);
+    }
+
+    layer.addEventListener("pointerup", finish);
+    layer.addEventListener("pointercancel", function () {
+      if (box) box.remove();
+      box = null; start = null;
+    });
+
+    // 직접 쓰는 메모: 빈 곳을 더블클릭하면 그 자리에 텍스트 상자가 생긴다
+    layer.addEventListener("dblclick", function (e) {
+      if (e.target !== layer) return;
+      var r = layer.getBoundingClientRect();
+      var W = state.viewport.width / state.dpr;
+      var H = state.viewport.height / state.dpr;
+      var card = {
+        id: "n" + Date.now(),
+        page: state.page,
+        manual: true,
+        inserted: true,
+        memo: "",
+        summary: "",
+        rect: { x: (e.clientX - r.left) / W, y: (e.clientY - r.top) / H, w: 0, h: 0 }
+      };
+      state.cards.push(card);
+      saveCard(card);
+      drawPins();
+      var pins = state.layer.querySelectorAll(".pin");
+      openPin(card, pins[pins.length - 1]);
+    });
+  }
+
+  /* ---------- 잘라내기 + 텍스트 뽑기 ---------- */
+
+  function cropImage(rect, maxW) {
+    var d = state.dpr;
+    var sx = rect.x * d, sy = rect.y * d, sw = rect.w * d, sh = rect.h * d;
+    var out = document.createElement("canvas");
+    var k = Math.min(1, (maxW || 1400) / sw);
+    out.width = Math.max(1, Math.round(sw * k));
+    out.height = Math.max(1, Math.round(sh * k));
+    var ctx = out.getContext("2d");
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, out.width, out.height);
+    ctx.drawImage(state.canvas, sx, sy, sw, sh, 0, 0, out.width, out.height);
+    return out;
+  }
+
+  async function textInRect(rect) {
+    try {
+      var page = await state.pdf.getPage(state.page);
+      var vp = state.viewport;
+      var tc = await page.getTextContent();
+      var d = state.dpr;
+      var out = [];
+      tc.items.forEach(function (it) {
+        var t = pdfjsLib.Util.transform(vp.transform, it.transform);
+        var x = t[4] / d, y = t[5] / d;
+        var h = Math.hypot(t[2], t[3]) / d;
+        var w = (it.width || 0) * state.scale;
+        var cx = x + w / 2, cy = y - h / 2;
+        if (cx >= rect.x && cx <= rect.x + rect.w && cy >= rect.y && cy <= rect.y + rect.h) {
+          out.push(it.str);
+        }
+      });
+      return out.join(" ").replace(/\s+/g, " ").trim().slice(0, 2500);
+    } catch (e) { return ""; }
+  }
+
+  /* ---------- Claude 호출 ---------- */
+
+  async function callClaude(messages) {
+    var res = await fetch("/api/ask", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages: messages })
+    });
+    if (!res.ok) {
+      // 서버가 알려준 진짜 이유를 그대로 올려보낸다.
+      // 그러지 않으면 Claude Code 미설치도 그냥 "연결 실패"로만 보인다.
+      var why = "";
+      try { why = (await res.json()).error || ""; } catch (e) {}
+      if (/ENOENT|claude CLI/.test(why)) {
+        why = "Claude Code가 설치돼 있지 않습니다. 터미널에서 npm i -g @anthropic-ai/claude-code 후 claude auth login 하세요.";
+      }
+      throw new Error(why || ("http " + res.status));
+    }
+    var data = await res.json();
+    return (data.content || [])
+      .map(function (i) { return i.type === "text" ? i.text : ""; })
+      .filter(Boolean)
+      .join("\n");
+  }
+
+  function recentContext() {
+    return state.cards.slice(-2).map(function (c) {
+      return "(" + c.page + "쪽) " + (c.memo || "");
+    }).join(" / ");
+  }
+
+  async function capture(rect) {
+    var full = cropImage(rect, 1400);
+    var thumb = cropImage(rect, 560);
+    var id = "c" + Date.now();
+
+    var card = {
+      id: id,
+      page: state.page,
+      img: thumb.toDataURL("image/jpeg", 0.72),
+      rect: {
+        x: rect.x / (state.viewport.width / state.dpr),
+        y: rect.y / (state.viewport.height / state.dpr),
+        w: rect.w / (state.viewport.width / state.dpr),
+        h: rect.h / (state.viewport.height / state.dpr)
+      },
+      memo: "",
+      summary: "",
+      detail: "",
+      inserted: false,
+      pending: true
+    };
+    state.cards.push(card);
+    renderCards();
+
+    var text = await textInRect(rect);
+    var b64 = full.toDataURL("image/jpeg", 0.85).split(",")[1];
+    var ctx = recentContext();
+
+    var prompt =
+      "대학 강의자료 " + state.page + "쪽에서 오려낸 부분입니다.\n" +
+      (text ? "이 영역의 원문 텍스트: " + text + "\n" : "") +
+      (ctx ? "직전에 오려낸 것들: " + ctx + "\n" : "") +
+      "\n한국어로 답하고, 아래 JSON만 출력하세요. 설명이나 코드블록 표시는 넣지 마세요.\n" +
+      '{"memo": "PDF에 붙일 한 줄 (40자 이내, 이 부분이 뭔지 딱 알아보게)", ' +
+      '"summary": "3~5줄 정리. 수업 중에 읽을 것이므로 짧고 구체적으로."}';
+
+    try {
+      var raw = await callClaude([{
+        role: "user",
+        content: [
+          { type: "image", source: { type: "base64", media_type: "image/jpeg", data: b64 } },
+          { type: "text", text: prompt }
+        ]
+      }]);
+      var clean = raw.replace(/```json|```/g, "").trim();
+      var parsed;
+      try { parsed = JSON.parse(clean); }
+      catch (e) { parsed = { memo: clean.slice(0, 40), summary: clean }; }
+      card.memo = (parsed.memo || "").slice(0, 60);
+      card.summary = parsed.summary || clean;
+      card.pending = false;
+      setStatus("");
+    } catch (err) {
+      card.pending = false;
+      card.summary = "정리를 받아오지 못했습니다. 카드의 다시 시도를 눌러 보세요.";
+      card.failed = true;
+      setStatus(String(err.message || err), true);
+    }
+
+    if ($("auto").checked && !card.failed) {
+      card.inserted = true;
+    }
+    renderCards();
+    drawPins();
+    saveCard(card);
+  }
+
+  async function expand(card) {
+    card.detail = "…";
+    renderCards();
+    try {
+      card.detail = await callClaude([{
+        role: "user",
+        content: [{
+          type: "text",
+          text: "다음은 대학 강의자료 " + card.page + "쪽의 한 부분을 정리한 것입니다.\n\n" +
+            card.summary +
+            "\n\n이걸 처음 배우는 학생이 이해할 수 있게 한국어로 더 풀어서 설명해 주세요. " +
+            "왜 그런지, 어디에 쓰이는지까지. 8줄 이내."
+        }]
+      }]);
+    } catch (e) {
+      card.detail = "더 자세한 설명을 받아오지 못했습니다.";
+    }
+    renderCards();
+    saveCard(card);
+  }
+
+  /* ---------- 카드 ---------- */
+
+  function renderCards() {
+    var box = $("cards");
+    box.innerHTML = "";
+    var list = state.cards.filter(function (c) { return !c.manual; });
+    $("count").textContent = list.length ? list.length + "장" : "";
+
+    if (!list.length) {
+      box.innerHTML = '<div class="hint">아직 오려낸 것이 없습니다.<br />PDF 위에서 드래그해 보세요.<br />빈 곳을 두 번 누르면 직접 메모를 쓸 수 있습니다.</div>';
+      return;
+    }
+
+    list.forEach(function (card) {
+      var el = document.createElement("div");
+      el.className = "card";
+
+      var img = document.createElement("img");
+      img.src = card.img;
+      img.alt = card.page + "쪽에서 오려낸 부분";
+      el.appendChild(img);
+
+      var body = document.createElement("div");
+      body.className = "cardbody";
+
+      var meta = document.createElement("div");
+      meta.className = "cardmeta";
+      var pg = document.createElement("span");
+      pg.textContent = card.page + "쪽";
+
+      var acts = document.createElement("span");
+      acts.style.display = "flex";
+      acts.style.gap = "6px";
+
+      if (!card.pending && !card.failed && !card.editing) {
+        var ed = document.createElement("button");
+        ed.textContent = "고치기";
+        ed.onclick = function () { card.editing = true; renderCards(); };
+        acts.appendChild(ed);
+      }
+
+      var del = document.createElement("button");
+      del.textContent = "지우기";
+      del.onclick = function () {
+        state.cards = state.cards.filter(function (c) { return c !== card; });
+        deleteCard(card);
+        renderCards();
+        drawPins();
+      };
+      acts.appendChild(del);
+
+      meta.appendChild(pg);
+      meta.appendChild(acts);
+      body.appendChild(meta);
+
+      if (card.editing) {
+        var edit = document.createElement("div");
+        edit.className = "cardedit";
+
+        var l1 = document.createElement("label");
+        l1.textContent = "PDF에 붙는 한 줄";
+        var memoIn = document.createElement("input");
+        memoIn.type = "text";
+        memoIn.value = card.memo || "";
+        memoIn.maxLength = 60;
+
+        var l2 = document.createElement("label");
+        l2.textContent = "정리";
+        var sumIn = document.createElement("textarea");
+        sumIn.rows = 6;
+        sumIn.value = card.summary || "";
+
+        edit.appendChild(l1);
+        edit.appendChild(memoIn);
+        edit.appendChild(l2);
+        edit.appendChild(sumIn);
+
+        var detIn = null;
+        if (card.detail) {
+          var l3 = document.createElement("label");
+          l3.textContent = "자세한 설명";
+          detIn = document.createElement("textarea");
+          detIn.rows = 6;
+          detIn.value = card.detail;
+          edit.appendChild(l3);
+          edit.appendChild(detIn);
+        }
+
+        var eb = document.createElement("div");
+        eb.className = "editbtns";
+        var ok = document.createElement("button");
+        ok.className = "primary";
+        ok.textContent = "저장";
+        ok.onclick = function () {
+          card.memo = memoIn.value.slice(0, 60);
+          card.summary = sumIn.value;
+          if (detIn) card.detail = detIn.value;
+          card.editing = false;
+          renderCards();
+          drawPins();
+          saveCard(card);
+        };
+        var cancel = document.createElement("button");
+        cancel.textContent = "취소";
+        cancel.onclick = function () { card.editing = false; renderCards(); };
+        eb.appendChild(ok);
+        eb.appendChild(cancel);
+        edit.appendChild(eb);
+
+        body.appendChild(edit);
+        el.appendChild(body);
+        box.appendChild(el);
+        return;
+      }
+
+      var txt = document.createElement("div");
+      txt.className = "cardtext" + (card.pending ? " loading" : "");
+      txt.textContent = card.pending ? "정리하는 중…" : card.summary;
+      body.appendChild(txt);
+
+      if (card.detail) {
+        var det = document.createElement("div");
+        det.className = "cardtext";
+        det.style.marginTop = "9px";
+        det.style.color = "var(--muted)";
+        det.textContent = card.detail;
+        body.appendChild(det);
+      }
+
+      if (!card.pending && !card.failed) {
+        if (!card.detail) {
+          var more = document.createElement("div");
+          more.className = "more";
+          var mb = document.createElement("button");
+          mb.textContent = "더 자세히";
+          mb.onclick = function () { expand(card); };
+          more.appendChild(mb);
+          body.appendChild(more);
+        }
+
+        if (card.inserted) {
+          var done = document.createElement("div");
+          done.className = "done";
+          done.textContent = "PDF " + card.page + "쪽에 메모로 붙였습니다";
+          body.appendChild(done);
+        } else if (!card.declined) {
+          var ask = document.createElement("div");
+          ask.className = "ask";
+          ask.textContent = "이 내용을 그 자리에 메모로 붙일까요? — “" + card.memo + "”";
+          var row = document.createElement("div");
+          row.className = "askrow";
+          var yes = document.createElement("button");
+          yes.className = "primary";
+          yes.textContent = "예";
+          yes.onclick = function () {
+            card.inserted = true;
+            renderCards(); drawPins(); saveCard(card);
+          };
+          var no = document.createElement("button");
+          no.textContent = "아니요";
+          no.onclick = function () {
+            card.declined = true;
+            renderCards(); saveCard(card);
+          };
+          row.appendChild(yes); row.appendChild(no);
+          ask.appendChild(row);
+          body.appendChild(ask);
+        }
+      }
+
+      if (card.failed) {
+        var retry = document.createElement("div");
+        retry.className = "more";
+        var rb = document.createElement("button");
+        rb.textContent = "다시 시도";
+        rb.onclick = function () {
+          state.cards = state.cards.filter(function (c) { return c !== card; });
+          deleteCard(card);
+          renderCards();
+          setStatus("같은 부분을 다시 그어 주세요.");
+        };
+        retry.appendChild(rb);
+        body.appendChild(retry);
+      }
+
+      el.appendChild(body);
+      box.appendChild(el);
+    });
+    box.scrollTop = box.scrollHeight;
+  }
+
+  /* ---------- 페이지 위 메모 핀 ---------- */
+
+  function closePin() {
+    var n = document.querySelector(".pinnote");
+    if (n) n.remove();
+    state.openPin = null;
+  }
+
+  function drawPins() {
+    if (!state.layer) return;
+    Array.prototype.forEach.call(state.layer.querySelectorAll(".pin"), function (p) { p.remove(); });
+    closePin();
+
+    var W = state.viewport.width / state.dpr;
+    var H = state.viewport.height / state.dpr;
+
+    state.cards.forEach(function (card) {
+      if (!card.inserted || card.page !== state.page) return;
+      var pin = document.createElement("div");
+      pin.className = "pin" + (card.manual ? " manual" : "");
+      pin.textContent = card.manual ? "쓴" : "메";
+      pin.title = card.memo || "빈 메모";
+      var left = (card.rect.x + card.rect.w) * W + (card.manual ? 0 : 6);
+      if (left > W - 26) left = W - 26;
+      pin.style.left = left + "px";
+      pin.style.top = card.rect.y * H + "px";
+      pin.onclick = function (e) {
+        e.stopPropagation();
+        openPin(card, pin);
+      };
+      state.layer.appendChild(pin);
+    });
+  }
+
+  function openPin(card, pin) {
+    if (state.openPin === card) { closePin(); return; }
+    closePin();
+    state.openPin = card;
+
+    var W = state.viewport.width / state.dpr;
+    var note = document.createElement("div");
+    note.className = "pinnote";
+    var left = parseFloat(pin.style.left) + 26;
+    if (left + 190 > W) left = Math.max(4, parseFloat(pin.style.left) - 196);
+    note.style.left = left + "px";
+    note.style.top = pin.style.top;
+
+    var ta = document.createElement("textarea");
+    ta.value = card.memo;
+    ta.rows = 3;
+    ta.setAttribute("aria-label", "메모 내용");
+    note.appendChild(ta);
+
+    var btns = document.createElement("div");
+    btns.className = "pinbtns";
+    var save = document.createElement("button");
+    save.textContent = "저장";
+    save.onclick = function () {
+      card.memo = ta.value;
+      saveCard(card);
+      closePin();
+      drawPins();
+    };
+    var rm = document.createElement("button");
+    rm.textContent = card.manual ? "지우기" : "메모 빼기";
+    rm.onclick = function () {
+      if (card.manual) {
+        state.cards = state.cards.filter(function (c) { return c !== card; });
+        deleteCard(card);
+      } else {
+        card.inserted = false;
+        card.declined = true;
+        saveCard(card);
+      }
+      closePin();
+      drawPins();
+      renderCards();
+    };
+    btns.appendChild(save); btns.appendChild(rm);
+    note.appendChild(btns);
+
+    note.addEventListener("pointerdown", function (e) { e.stopPropagation(); });
+    state.layer.appendChild(note);
+    ta.focus();
+  }
+
+  /* ---------- 내보내기 ---------- */
+
+  var openUrl = null;
+
+  function closeSheet() {
+    var v = document.querySelector(".veil");
+    if (v) v.remove();
+    if (openUrl) { URL.revokeObjectURL(openUrl); openUrl = null; }
+  }
+
+  // 코드가 링크를 대신 눌러 내려받는 방식은 아티팩트 보안 상자에서 막히고,
+  // 막히면 그 주소로 화면이 이동해 앱이 통째로 사라진다.
+  // 그래서 자동 클릭을 쓰지 않고, 사용자가 직접 누르는 링크만 띄운다.
+  function showExport(title, opts) {
+    closeSheet();
+    var veil = document.createElement("div");
+    veil.className = "veil";
+    veil.addEventListener("pointerdown", function (e) {
+      if (e.target === veil) closeSheet();
+    });
+
+    var sheet = document.createElement("div");
+    sheet.className = "sheet";
+    sheet.addEventListener("pointerdown", function (e) { e.stopPropagation(); });
+
+    var h = document.createElement("h3");
+    h.textContent = title;
+    sheet.appendChild(h);
+
+    var body = document.createElement("div");
+    body.className = "sbody";
+    if (opts.note) {
+      var p = document.createElement("p");
+      p.className = "note";
+      p.textContent = opts.note;
+      body.appendChild(p);
+    }
+    var ta = null;
+    if (opts.text != null) {
+      ta = document.createElement("textarea");
+      ta.value = opts.text;
+      ta.readOnly = true;
+      body.appendChild(ta);
+    }
+    sheet.appendChild(body);
+
+    var foot = document.createElement("div");
+    foot.className = "sfoot";
+
+    if (opts.blob) {
+      openUrl = URL.createObjectURL(opts.blob);
+      var a = document.createElement("a");
+      a.className = "dl";
+      a.href = openUrl;
+      a.download = opts.filename;
+      a.textContent = "내려받기";
+      foot.appendChild(a);
+    }
+
+    if (ta) {
+      var copy = document.createElement("button");
+      copy.className = opts.blob ? "" : "primary";
+      copy.textContent = "전체 복사";
+      copy.onclick = function () {
+        ta.select();
+        var ok = false;
+        try { ok = document.execCommand("copy"); } catch (e) {}
+        if (!ok && navigator.clipboard) navigator.clipboard.writeText(ta.value);
+        copy.textContent = "복사했습니다";
+        setTimeout(function () { copy.textContent = "전체 복사"; }, 1600);
+      };
+      foot.appendChild(copy);
+    }
+
+    var sp = document.createElement("div");
+    sp.className = "spacer";
+    foot.appendChild(sp);
+
+    var close = document.createElement("button");
+    close.textContent = "닫기";
+    close.onclick = closeSheet;
+    foot.appendChild(close);
+
+    sheet.appendChild(foot);
+    veil.appendChild(sheet);
+    $("root").appendChild(veil);
+  }
+
+  function buildMarkdown() {
+    var lines = ["# " + state.docName, ""];
+    var byPage = {};
+    state.cards.forEach(function (c) {
+      (byPage[c.page] = byPage[c.page] || []).push(c);
+    });
+    Object.keys(byPage)
+      .sort(function (a, b) { return a - b; })
+      .forEach(function (pg) {
+        lines.push("## " + pg + "쪽");
+        lines.push("");
+        byPage[pg].forEach(function (c) {
+          if (c.manual) {
+            lines.push("- (직접 쓴 메모) " + (c.memo || ""));
+          } else {
+            lines.push("### " + (c.memo || "오려낸 부분"));
+            lines.push("");
+            lines.push(c.summary || "");
+            if (c.detail) { lines.push(""); lines.push(c.detail); }
+          }
+          lines.push("");
+        });
+      });
+    return lines.join("\n");
+  }
+
+  $("expMd").onclick = function () {
+    if (!state.cards.length) { setStatus("내보낼 내용이 아직 없습니다."); return; }
+    var md = buildMarkdown();
+    showExport("정리 내보내기", {
+      note: "복사해서 노션이나 메모장에 붙이거나, 파일로 내려받으세요.",
+      text: md,
+      blob: new Blob([md], { type: "text/markdown" }),
+      filename: state.docName + " 정리.md"
+    });
+  };
+
+  // 한글은 표준 PDF 폰트에 없으므로, 메모를 캔버스에 그려 이미지로 심는다
+  function memoToPng(text) {
+    var pad = 8, w = 230, fs = 13, lh = 18;
+    var m = document.createElement("canvas").getContext("2d");
+    m.font = fs + "px sans-serif";
+    var words = String(text).split("");
+    var lines = [], cur = "";
+    words.forEach(function (ch) {
+      if (m.measureText(cur + ch).width > w - pad * 2 - 6) { lines.push(cur); cur = ch; }
+      else cur += ch;
+    });
+    if (cur) lines.push(cur);
+
+    var h = pad * 2 + lines.length * lh;
+    var cv = document.createElement("canvas");
+    var s = 2;
+    cv.width = w * s; cv.height = h * s;
+    var c = cv.getContext("2d");
+    c.scale(s, s);
+    c.fillStyle = "#fff8dc";
+    c.fillRect(0, 0, w, h);
+    c.fillStyle = "#ffd83d";
+    c.fillRect(0, 0, 3, h);
+    c.fillStyle = "#241d00";
+    c.font = fs + "px sans-serif";
+    c.textBaseline = "top";
+    lines.forEach(function (ln, i) { c.fillText(ln, pad, pad + i * lh); });
+    return { dataUrl: cv.toDataURL("image/png"), w: w, h: h };
+  }
+
+  $("expPdf").onclick = async function () {
+    var inserted = state.cards.filter(function (c) { return c.inserted; });
+    if (!inserted.length) { setStatus("PDF에 붙인 메모가 아직 없습니다."); return; }
+    setStatus("메모를 넣는 중…");
+    try {
+      var doc = await PDFLib.PDFDocument.load(state.bytes.slice(0));
+      for (var i = 0; i < inserted.length; i++) {
+        var card = inserted[i];
+        var pg = doc.getPage(card.page - 1);
+        var pw = pg.getWidth(), ph = pg.getHeight();
+
+        pg.drawRectangle({
+          x: card.rect.x * pw,
+          y: ph - (card.rect.y + card.rect.h) * ph,
+          width: card.rect.w * pw,
+          height: card.rect.h * ph,
+          borderColor: PDFLib.rgb(1, 0.85, 0.24),
+          borderWidth: 1.5,
+          opacity: 0
+        });
+
+        var memo = memoToPng(card.memo || card.summary);
+        var png = await doc.embedPng(memo.dataUrl);
+        var mx = (card.rect.x + card.rect.w) * pw + 6;
+        if (mx + memo.w > pw - 4) mx = Math.max(4, pw - memo.w - 4);
+        var my = ph - card.rect.y * ph - memo.h;
+        if (my < 4) my = 4;
+        pg.drawImage(png, { x: mx, y: my, width: memo.w, height: memo.h });
+      }
+      var out = await doc.save();
+      showExport("메모 넣은 PDF", {
+        note: "메모 " + inserted.length + "개를 넣었습니다. 아래 버튼으로 내려받아 굿노트 등에서 이어 쓰세요.",
+        blob: new Blob([out], { type: "application/pdf" }),
+        filename: state.docName + " 메모.pdf"
+      });
+      setStatus("");
+    } catch (e) {
+      setStatus("PDF를 만들지 못했습니다. 다른 파일로 시도해 보세요.", true);
+    }
+  };
+
+  document.addEventListener("keydown", function (e) {
+    if (!state.pdf) return;
+    if (e.key === "ArrowLeft") $("prev").click();
+    if (e.key === "ArrowRight") $("next").click();
+    if (e.key === "Escape") closePin();
+  });
+})();
+</script>
+
+</body>
+</html>

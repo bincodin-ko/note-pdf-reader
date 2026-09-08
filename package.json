@@ -1,0 +1,32 @@
+{
+  "name": "capnote",
+  "productName": "오려둔 공책",
+  "version": "0.1.0",
+  "description": "PDF 강의자료에서 영역을 오려 AI 정리를 받고 그 자리에 메모로 남기는 학습 도구",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "web": "node server.js",
+    "start": "electron .",
+    "dist": "electron-builder"
+  },
+  "build": {
+    "appId": "app.capnote",
+    "files": [
+      "main.js",
+      "server.js",
+      "public/**/*"
+    ],
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.education"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage",
+      "category": "Education"
+    }
+  }
+}
