@@ -1251,22 +1251,140 @@
     return { dataUrl: cv.toDataURL("image/png"), w: w, h: h };
   }
 
+  /*
+   * 메모를 놓을 자리 고르기
+   *
+   * 예전에는 오려낸 영역 오른쪽에 붙이고, 폭이 모자라면 페이지 오른쪽 끝으로 밀었다.
+   * 그런데 강의 슬라이드는 폭을 거의 다 쓰기 때문에 그 "밀기"가 곧바로 본문을 덮었다.
+   * 오려낸 그림 위에 메모가 얹히면 무엇을 오렸는지 안 보여서 앞뒤가 바뀐다.
+   *
+   * 피할 것을 두 등급으로 나눈다.
+   *   hard — 오려낸 영역과 이미 놓은 메모. 이건 덮으면 안 된다
+   *   soft — 본문 글자. 되도록 피하되, 빽빽한 슬라이드에서는 어쩔 수 없을 수 있다
+   * 가중치를 다르게 줘서, 정 자리가 없으면 글자를 조금 가리더라도
+   * 오려낸 그림만은 지키는 쪽으로 고른다.
+   */
+  var MEMO_GAP = 6, MEMO_MARGIN = 4;
+
+  function overlapArea(a, b) {
+    var dx = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
+    var dy = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+    return dx > 0 && dy > 0 ? dx * dy : 0;
+  }
+
+  /*
+   * 본문 글자 상자들을 PDF 좌표(왼쪽 아래 원점, 포인트 단위)로 모은다.
+   * 내보내기는 pdf-lib가 하지만 글자 위치는 이미 열려 있는 pdf.js 쪽이 알고 있다.
+   */
+  async function textBoxes(pageNo) {
+    try {
+      var page = await state.pdf.getPage(pageNo);
+      var vp = page.getViewport({ scale: 1 });        // 뷰포트 배율 1 = PDF 포인트
+      var tc = await page.getTextContent();
+      var out = [];
+      tc.items.forEach(function (it) {
+        var t = pdfjsLib.Util.transform(vp.transform, it.transform);
+        var h = Math.hypot(t[2], t[3]) || 10;
+        var w = it.width || 0;
+        if (w > 0) out.push({ x: t[4], y: vp.height - t[5], w: w, h: h });
+      });
+      return out;
+    } catch (e) {
+      return [];        // 글자를 못 읽어도 배치는 계속돼야 한다
+    }
+  }
+
+  // 좌표는 PDF 기준(왼쪽 아래가 원점)이다
+  function placeMemo(sel, mw, mh, pw, ph, hard, soft) {
+    var g = MEMO_GAP, m = MEMO_MARGIN, i;
+
+    function fit(x, y) {
+      return {
+        x: Math.max(m, Math.min(x, pw - mw - m)),
+        y: Math.max(m, Math.min(y, ph - mh - m)),
+        w: mw, h: mh
+      };
+    }
+
+    function score(c) {
+      var v = 0;
+      for (i = 0; i < hard.length; i++) v += overlapArea(c, hard[i]) * 100;
+      for (i = 0; i < soft.length; i++) v += overlapArea(c, soft[i]);
+      return v;
+    }
+
+    // 먼저 오려낸 영역 바로 옆의 보기 좋은 자리부터 본다
+    var spots = [
+      fit(sel.x + sel.w + g, sel.y + sel.h - mh),   // 오른쪽 (위 맞춤)
+      fit(sel.x - g - mw,    sel.y + sel.h - mh),   // 왼쪽
+      fit(sel.x,             sel.y - g - mh),       // 아래
+      fit(sel.x,             sel.y + sel.h + g)     // 위
+    ];
+    var best = null, bestScore = Infinity;
+    for (var k = 0; k < spots.length; k++) {
+      var sc = score(spots[k]);
+      if (sc === 0) return spots[k];
+      if (sc < bestScore) { bestScore = sc; best = spots[k]; }
+    }
+
+    /*
+     * 네 자리가 다 막혔으면 페이지를 훑어 가장 가까운 빈자리를 찾는다.
+     * 강의 슬라이드는 여백이 넉넉한 편이라 보통 여기서 걸린다.
+     */
+    var cx = sel.x + sel.w / 2, cy = sel.y + sel.h / 2;
+    var step = 12, nearD = Infinity, near = null;
+    for (var y = m; y <= ph - mh - m; y += step) {
+      for (var x = m; x <= pw - mw - m; x += step) {
+        var c = { x: x, y: y, w: mw, h: mh };
+        var v = score(c);
+        if (v < bestScore) { bestScore = v; best = c; }
+        if (v !== 0) continue;
+        var d = (x + mw / 2 - cx) * (x + mw / 2 - cx) + (y + mh / 2 - cy) * (y + mh / 2 - cy);
+        if (d < nearD) { nearD = d; near = c; }
+      }
+    }
+    return near || best;   // 정말 빈자리가 없으면 가장 덜 가리는 자리
+  }
+
   $("expPdf").onclick = async function () {
     var inserted = state.cards.filter(function (c) { return c.inserted; });
     if (!inserted.length) { setStatus("PDF에 붙인 메모가 아직 없습니다."); return; }
     setStatus("메모를 넣는 중…");
     try {
       var doc = await PDFLib.PDFDocument.load(state.bytes.slice(0));
+
+      // 쪽마다 "이미 찬 자리"를 들고 다닌다. 메모끼리 겹치는 것도 막아야 하기 때문이다
+      var takenByPage = {};
+      var textByPage = {};      // 본문 글자 상자는 쪽마다 한 번만 읽는다
+
+      // 오려낸 영역은 전부 미리 피할 대상으로 잡는다.
+      // 2번 메모가 1번이 오려낸 그림을 덮으면 안 된다
+      var selByPage = {};
+      inserted.forEach(function (c) {
+        var pg0 = doc.getPage(c.page - 1);
+        var w0 = pg0.getWidth(), h0 = pg0.getHeight();
+        (selByPage[c.page] = selByPage[c.page] || []).push({
+          x: c.rect.x * w0,
+          y: h0 - (c.rect.y + c.rect.h) * h0,
+          w: c.rect.w * w0,
+          h: c.rect.h * h0
+        });
+      });
+
       for (var i = 0; i < inserted.length; i++) {
         var card = inserted[i];
         var pg = doc.getPage(card.page - 1);
         var pw = pg.getWidth(), ph = pg.getHeight();
 
-        pg.drawRectangle({
+        var sel = {
           x: card.rect.x * pw,
           y: ph - (card.rect.y + card.rect.h) * ph,
-          width: card.rect.w * pw,
-          height: card.rect.h * ph,
+          w: card.rect.w * pw,
+          h: card.rect.h * ph
+        };
+
+        pg.drawRectangle({
+          x: sel.x, y: sel.y, width: sel.w, height: sel.h,
           borderColor: PDFLib.rgb(1, 0.85, 0.24),
           borderWidth: 1.5,
           opacity: 0
@@ -1274,11 +1392,15 @@
 
         var memo = memoToPng(card.memo || card.summary);
         var png = await doc.embedPng(memo.dataUrl);
-        var mx = (card.rect.x + card.rect.w) * pw + 6;
-        if (mx + memo.w > pw - 4) mx = Math.max(4, pw - memo.w - 4);
-        var my = ph - card.rect.y * ph - memo.h;
-        if (my < 4) my = 4;
-        pg.drawImage(png, { x: mx, y: my, width: memo.w, height: memo.h });
+
+        var taken = takenByPage[card.page] = takenByPage[card.page] || [];
+        if (!(card.page in textByPage)) textByPage[card.page] = await textBoxes(card.page);
+
+        var hard = (selByPage[card.page] || []).concat(taken);
+        var at = placeMemo(sel, memo.w, memo.h, pw, ph, hard, textByPage[card.page]);
+
+        pg.drawImage(png, { x: at.x, y: at.y, width: memo.w, height: memo.h });
+        taken.push({ x: at.x, y: at.y, w: memo.w, h: memo.h });
       }
       var out = await doc.save();
       showExport("메모 넣은 PDF", {
