@@ -10,7 +10,6 @@ name: 설치파일 빌드
 on:
   push:
     tags: ["v*"]
-    branches: ["claude/pdf-open-drag-test-n0bh8v"]   # 임시: 워크플로 검증용. 검증 끝나면 제거한다
   workflow_dispatch:
 
 # 같은 태그로 두 번 밀렸을 때 앞의 실행을 접는다
