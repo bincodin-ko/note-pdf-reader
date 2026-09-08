@@ -17,12 +17,27 @@ const path = require("node:path");
 const { execFile } = require("node:child_process");
 
 const PORT = process.env.PORT || 5173;
-const KEY = process.env.ANTHROPIC_API_KEY;
 const MODEL = process.env.CLAUDE_MODEL || "claude-sonnet-5";
 const PUBLIC = path.join(__dirname, "public");
 
-// 키가 없으면 Claude Code CLI로 넘어간다 (claude auth login 필요, 구독으로 처리)
-const USE_CLI = !KEY;
+/*
+ * 모드는 키 유무가 아니라 CLAUDE_USE_API로만 정한다.
+ *
+ * 예전에는 ANTHROPIC_API_KEY가 있으면 자동으로 API 경로를 탔는데,
+ * 그러면 셸이나 .env에 키가 굴러다니는 것만으로 모르는 사이 과금 경로로 샌다.
+ * 기본은 구독(claude -p)이고, 돈 나가는 쪽은 반드시 명시적으로 켜야 한다.
+ */
+const USE_API = process.env.CLAUDE_USE_API === "1";
+const KEY = USE_API ? process.env.ANTHROPIC_API_KEY : undefined;   // API 모드일 때만 키를 읽는다
+
+// API를 켜라고 했는데 키가 없으면 죽이지 않고 구독으로 되돌린다.
+// 수업 중에 쓰는 도구라 오타 하나로 서버가 안 뜨는 쪽이 더 나쁘다. 대신 시끄럽게 알린다.
+const API_NO_KEY = USE_API && !KEY;
+const USE_CLI = !USE_API || API_NO_KEY;
+const MODE = USE_CLI ? "cli" : "api";
+const MODE_LABEL = USE_CLI
+  ? "Claude Code CLI (구독으로 처리)"
+  : "Anthropic API · 모델 " + MODEL;
 
 const TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -33,7 +48,10 @@ const TYPES = {
 };
 
 function send(res, code, body, type) {
-  res.writeHead(code, { "Content-Type": type || "application/json; charset=utf-8" });
+  res.writeHead(code, {
+    "Content-Type": type || "application/json; charset=utf-8",
+    "X-Capnote-Mode": MODE          // 어느 경로로 답했는지 응답만 봐도 알 수 있게
+  });
   res.end(body);
 }
 
@@ -95,7 +113,7 @@ async function ask(req, res) {
 
       if (USE_CLI) {
         const out = await askViaCli(messages);
-        return send(res, 200, JSON.stringify(out));
+        return send(res, 200, JSON.stringify({ ...out, mode: MODE }));
       }
 
       const r = await fetch("https://api.anthropic.com/v1/messages", {
@@ -108,9 +126,15 @@ async function ask(req, res) {
         body: JSON.stringify({ model: MODEL, max_tokens: 1000, messages })
       });
       const data = await r.text();
-      send(res, r.status, data);
+      let out = data;
+      try {
+        const j = JSON.parse(data);
+        j.mode = MODE;
+        out = JSON.stringify(j);
+      } catch (e) { /* JSON이 아니면 원문을 그대로 넘겨야 진짜 이유가 보인다 */ }
+      send(res, r.status, out);
     } catch (e) {
-      send(res, 500, JSON.stringify({ error: String(e.message || e) }));
+      send(res, 500, JSON.stringify({ error: String(e.message || e), mode: MODE }));
     }
   });
 }
@@ -128,10 +152,19 @@ http.createServer((req, res) => {
   });
 }).listen(PORT, () => {
   console.log(`\n  오려둔 공책 → http://localhost:${PORT}`);
+  console.log(`  모드: ${MODE_LABEL}  [${MODE}]`);
+
+  if (API_NO_KEY) {
+    console.log("  !! CLAUDE_USE_API=1을 켰지만 ANTHROPIC_API_KEY가 없어 구독 경로로 돌아갑니다.");
+  }
+
   if (USE_CLI) {
-    console.log("  모드: Claude Code CLI (구독으로 처리 · API 키 없음)");
+    if (process.env.ANTHROPIC_API_KEY) {
+      // 키가 있는데도 안 쓴다는 걸 분명히 해야, 요금이 나갈까 걱정하지 않는다
+      console.log("  ANTHROPIC_API_KEY가 환경에 있지만 쓰지 않습니다 (API를 쓰려면 CLAUDE_USE_API=1)");
+    }
     console.log("  준비: npm i -g @anthropic-ai/claude-code  &&  claude auth login\n");
   } else {
-    console.log(`  모드: Anthropic API · 모델 ${MODEL}\n`);
+    console.log("  주의: 호출마다 요금이 나갑니다\n");
   }
 });
