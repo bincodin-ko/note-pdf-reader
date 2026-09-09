@@ -20,16 +20,26 @@
     --marker: #ffd83d;
     --marker-soft: rgba(255, 216, 61, 0.22);
     --danger: #ff8b6b;
+    --note-fs: 14px;        /* 정리 패널 글자 크기. 사용자가 바꾼다 */
   }
 
   * { box-sizing: border-box; }
+
+  html, body { margin: 0; height: 100%; overflow: hidden; }
 
   #root {
     background: var(--ink);
     color: var(--text);
     font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo",
       "Pretendard", "Noto Sans KR", "Malgun Gothic", sans-serif;
-    min-height: 100vh;
+    /*
+     * min-height가 아니라 height다.
+     * min-height면 정리 패널 내용이 길어질 때 #root가 화면 밖으로 늘어나고,
+     * flex:1인 PDF 영역까지 같이 늘어나 비율이 무너졌다.
+     * 높이를 화면에 고정하고, 넘치는 건 안쪽 패널이 스스로 스크롤한다.
+     */
+    height: 100vh;
+    overflow: hidden;
     display: flex;
     flex-direction: column;
     font-size: 15px;
@@ -84,12 +94,24 @@
   }
 
   .pageno {
-    font-variant-numeric: tabular-nums;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
     color: var(--muted);
-    min-width: 74px;
-    text-align: center;
-    font-size: 14px;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
   }
+  .pageno input {
+    width: 42px;
+    text-align: center;
+    font: inherit;
+    color: var(--text);
+    background: var(--ink);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 4px 2px;
+  }
+  .pageno input:focus { outline: none; border-color: var(--marker); }
 
   .spacer { flex: 1; }
 
@@ -210,8 +232,10 @@
   .memoacts button { font-size: 12px; padding: 4px 9px; border-radius: 5px; }
 
   .notes {
+    /* 폭을 못 늘리게 못 박는다. 긴 글이 들어와도 PDF 영역을 밀지 않게 */
+    flex: 0 0 350px;
     width: 350px;
-    flex-shrink: 0;
+    min-width: 0;
     border-left: 1px solid var(--rule);
     background: var(--ink-2);
     display: flex;
@@ -228,12 +252,23 @@
   }
   .noteshead strong { font-size: 14px; font-weight: 650; }
   .noteshead .count { color: var(--muted); font-size: 13px; }
+  .noteshead .fs {
+    margin-left: auto;
+    display: flex;
+    gap: 4px;
+  }
+  .noteshead .fs button {
+    font-size: 12px;
+    padding: 3px 8px;
+    border-radius: 5px;
+    color: var(--muted);
+  }
 
   .cards { flex: 1; overflow-y: auto; padding: 12px; }
 
   .hint {
     color: var(--muted);
-    font-size: 13px;
+    font-size: calc(var(--note-fs) - 1px);
     padding: 22px 8px;
     text-align: center;
     line-height: 1.7;
@@ -262,13 +297,31 @@
     justify-content: space-between;
     align-items: center;
   }
+  /* 카드의 쪽 표시를 눌러 그 쪽으로 간다 */
+  .gopage {
+    background: none;
+    border: 0;
+    padding: 0;
+    color: var(--muted);
+    font: inherit;
+    cursor: pointer;
+    text-decoration: underline dotted;
+    text-underline-offset: 3px;
+  }
+  .gopage:hover { color: var(--marker); }
+
   .cardmeta button {
     padding: 2px 7px;
     font-size: 11px;
     border-radius: 5px;
     color: var(--muted);
   }
-  .cardtext { font-size: 14px; white-space: pre-wrap; }
+  /* 띄어쓰기 없는 긴 문자열이 들어와도 패널을 밀지 않게 강제로 접는다 */
+  .cardtext {
+    font-size: var(--note-fs);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
   .cardtext.loading { color: var(--muted); }
 
   .cardedit label {
@@ -388,7 +441,8 @@
   /* 질문 카드는 오려낸 카드와 구분되게 왼쪽에 띠를 둔다 */
   .card.qna { border-left: 3px solid var(--marker); }
   .qtext {
-    font-size: 13px;
+    font-size: calc(var(--note-fs) - 1px);
+    overflow-wrap: anywhere;
     color: var(--marker);
     margin-bottom: 8px;
     line-height: 1.5;
@@ -492,6 +546,35 @@
     resize: vertical;
   }
   .sheet .note { font-size: 13px; color: var(--muted); margin: 0 0 10px; }
+  /* 정리 내보내기 — 항목 고르기 */
+  .picklist { max-height: 46vh; overflow-y: auto; margin-top: 6px; }
+  .pickitem {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    padding: 8px 6px;
+    border-bottom: 1px solid var(--rule);
+    cursor: pointer;
+  }
+  .pickitem:hover { background: rgba(255, 255, 255, 0.03); }
+  .pickitem input { margin-top: 3px; flex: 0 0 auto; }
+  .pickitem img {
+    width: 62px; height: 44px; object-fit: cover;
+    border-radius: 4px; background: #fff; flex: 0 0 auto;
+  }
+  .pickitem .pi { min-width: 0; flex: 1; }
+  .pickitem .pih { font-size: 11.5px; color: var(--muted); }
+  .pickitem .pib {
+    font-size: 13px;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+  .pickbar { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; }
+  .pickbar button { font-size: 12px; padding: 5px 10px; }
+  .pickbar .n { margin-left: auto; color: var(--muted); font-size: 12px; }
+
   .sheet .sfoot {
     display: flex;
     gap: 8px;
@@ -551,7 +634,11 @@
   <button id="open">PDF 열기</button>
   <input type="file" id="file" accept="application/pdf" hidden />
   <button id="prev" disabled>←</button>
-  <span class="pageno" id="pageno">– / –</span>
+  <span class="pageno">
+    <input id="pageIn" type="text" inputmode="numeric" value="–" title="쪽 번호를 넣고 Enter" />
+    <span class="slash">/</span>
+    <span id="pageTotal">–</span>
+  </span>
   <button id="next" disabled>→</button>
   <button id="zoomout" disabled>축소</button>
   <button id="zoomin" disabled>확대</button>
@@ -577,6 +664,10 @@
     <div class="noteshead">
       <strong>정리</strong>
       <span class="count" id="count"></span>
+      <span class="fs">
+        <button id="fsDown" title="글자 작게 (Ctrl+&lt;)">가－</button>
+        <button id="fsUp" title="글자 크게 (Ctrl+&gt;)">가＋</button>
+      </span>
     </div>
     <div class="cards" id="cards">
       <div class="hint">아직 오려낸 것이 없습니다.<br />PDF 위에서 드래그해 보세요.</div>
@@ -594,7 +685,7 @@
       <button id="qsend" disabled>묻기</button>
     </div>
     <div class="foot">
-      <button id="expMd" disabled>정리 내보내기</button>
+      <button id="expMd" disabled>정리 PDF</button>
       <select id="expScope" disabled title="어느 쪽을 내보낼지">
         <option value="memo">메모 있는 쪽만</option>
         <option value="all">전체 쪽</option>
@@ -732,6 +823,7 @@
     scale: 1.25,
     userZoomed: false,      // 손으로 확대한 뒤에는 자동 맞춤이 끼어들지 않게
     dpr: Math.min(window.devicePixelRatio || 1, 2),
+    dprUsed: Math.min(window.devicePixelRatio || 1, 2),   // 픽셀 상한을 걸고 실제로 쓴 배율
     viewport: null,
     pageW: 0,               // 쪽 크기(PDF 포인트). 메모를 같은 치수로 그리려면 필요하다
     pageH: 0,
@@ -833,19 +925,29 @@
       state.docKey = (f.name + ":" + f.size).replace(/[^\w가-힣.:-]/g, "_").slice(0, 120);
       $("empty").style.display = "none";
       _textCache = {};
+      _tcCache = {};
+      _allText = null;
+      cacheReset();
 
       // 열자마자 창에 맞춘다
       state.scale = fitScale(await state.pdf.getPage(1));
       state.userZoomed = false;
 
+      /*
+       * 메모는 적는 즉시 IndexedDB에 들어간다. 내보내기 전에 앱이 꺼져도
+       * 같은 PDF를 다시 열면 그대로 돌아온다. 다만 그게 되고 있는지
+       * 사용자가 알 방법이 없어서 몇 개를 불러왔는지 알려 준다.
+       */
       await loadCards();
+      var restored = state.cards.length;
       if (carried && !state.cards.length) {
         state.cards = carried;
         state.cards.forEach(function (c) { saveCard(c); });
         setStatus("이 PDF에 들어 있던 메모 " + carried.length + "개를 불러왔습니다.");
       }
       await renderPage();
-      setStatus(state.docName + " · " + state.pages + "쪽");
+      setStatus(state.docName + " · " + state.pages + "쪽" +
+                (restored ? " · 저장해 둔 정리 " + restored + "개를 불러왔습니다" : ""));
     } catch (err) {
       setStatus("이 파일을 열지 못했습니다. 다른 PDF로 시도해 보세요.", true);
     }
@@ -877,7 +979,22 @@
   async function renderPage() {
     if (!state.pdf) return;
     var page = await state.pdf.getPage(state.page);
-    var vp = page.getViewport({ scale: state.scale * state.dpr });
+    /*
+     * 캔버스 픽셀 수에 상한을 둔다.
+     *
+     * 4K 화면을 꽉 채우면 폭*배율*dpr 로 8백만 화소가 넘어가고, 쪽을 넘길
+     * 때마다 그만큼을 새로 그리느라 눈에 띄게 느려진다. 화질 차이는 거의
+     * 없으면서 그 구간을 없앤다.
+     */
+    var dpr = state.dpr;
+    var probe = page.getViewport({ scale: state.scale * dpr });
+    var budget = 4.5e6;
+    if (probe.width * probe.height > budget) {
+      dpr = dpr * Math.sqrt(budget / (probe.width * probe.height));
+    }
+
+    var vp = page.getViewport({ scale: state.scale * dpr });
+    state.dprUsed = dpr;
     state.viewport = vp;
 
     var vp1 = page.getViewport({ scale: 1 });     // 포인트 단위 쪽 크기
@@ -901,15 +1018,31 @@
 
     state.canvas.width = vp.width;
     state.canvas.height = vp.height;
-    state.canvas.style.width = vp.width / state.dpr + "px";
-    state.canvas.style.height = vp.height / state.dpr + "px";
-    wrap.style.width = vp.width / state.dpr + "px";
+    state.canvas.style.width = vp.width / dpr + "px";
+    state.canvas.style.height = vp.height / dpr + "px";
+    wrap.style.width = vp.width / dpr + "px";
 
     if (state.renderTask) { try { state.renderTask.cancel(); } catch (e) {} }
-    state.renderTask = page.render({ canvasContext: state.canvas.getContext("2d"), viewport: vp });
-    try { await state.renderTask.promise; } catch (e) { return; }
 
-    $("pageno").textContent = state.page + " / " + state.pages;
+    var hit = cacheValid() ? cache.map[state.page] : null;
+    if (hit && hit.width === vp.width && hit.height === vp.height) {
+      // 미리 그려 둔 게 있다 — 옮겨 붙이기만 한다
+      state.canvas.getContext("2d").drawImage(hit, 0, 0);
+    } else {
+      state.renderTask = page.render({ canvasContext: state.canvas.getContext("2d"), viewport: vp });
+      try { await state.renderTask.promise; } catch (e) { return; }
+      if (!cacheValid()) { cacheReset(); cache.scale = state.scale; cache.dpr = dpr; }
+      if (!cache.map[state.page]) {
+        var keep = document.createElement("canvas");
+        keep.width = vp.width; keep.height = vp.height;
+        keep.getContext("2d").drawImage(state.canvas, 0, 0);
+        cache.map[state.page] = keep;
+        cache.px += keep.width * keep.height;
+      }
+    }
+
+    $("pageIn").value = state.page;
+    $("pageTotal").textContent = state.pages;
     ["prev", "next", "zoomin", "zoomout", "expMd", "expPdf", "q", "qsend", "qscope", "expScope"].forEach(function (id) {
       $(id).disabled = false;
     });
@@ -918,6 +1051,7 @@
 
     // 양옆 버튼은 위 툴바 버튼과 같은 상태를 따른다
     ["flipPrev", "flipNext"].forEach(function (id) { $(id).classList.remove("gone"); });
+    prefetchAround();
     $("flipPrev").disabled = $("prev").disabled;
     $("flipNext").disabled = $("next").disabled;
 
@@ -934,7 +1068,7 @@
     state.cards.forEach(function (c) {
       if (c.img || c.qna || c.manual || c.page !== state.page) return;
       if (!c.rect || !(c.rect.w > 0)) return;
-      var W = state.viewport.width / state.dpr, H = state.viewport.height / state.dpr;
+      var W = state.viewport.width / state.dprUsed, H = state.viewport.height / state.dprUsed;
       try {
         c.img = cropImage({ x: c.rect.x * W, y: c.rect.y * H, w: c.rect.w * W, h: c.rect.h * H }, 560)
                   .toDataURL("image/jpeg", 0.72);
@@ -944,16 +1078,118 @@
     if (changed) renderCards();
   }
 
+  /*
+   * 쪽을 미리 다 그려 둔다.
+   *
+   * 넘길 때마다 처음부터 그리느라 한 박자 쉬었다. 노트 앱처럼 미리 그려 두면
+   * 넘기는 순간은 그림을 옮겨 붙이는 일만 남는다.
+   *
+   * 다만 전부 메모리에 이고 있을 수는 없다. 쪽 하나가 2백만 화소면 8MB쯤
+   * 되므로, 화소 예산을 두고 현재 쪽에서 먼 것부터 버린다. 100쪽짜리를 열어도
+   * 앞뒤로 십수 쪽은 늘 준비돼 있어 체감상 "다 불러온" 것과 같다.
+   */
+  var PAGE_BUDGET_PX = 40e6;
+  var cache = { scale: 0, dpr: 0, map: {}, px: 0 };
+  var prefetching = false;
+
+  function cacheReset() {
+    cache = { scale: 0, dpr: 0, map: {}, px: 0 };
+  }
+
+  function cacheValid() {
+    return cache.scale === state.scale && cache.dpr === state.dprUsed;
+  }
+
+  function cacheEvict() {
+    // 예산을 넘으면 지금 보는 쪽에서 가장 먼 것부터 버린다
+    while (cache.px > PAGE_BUDGET_PX) {
+      var far = null, farD = -1;
+      Object.keys(cache.map).forEach(function (k) {
+        var d = Math.abs(Number(k) - state.page);
+        if (d > farD) { farD = d; far = k; }
+      });
+      if (far == null || farD <= 1) return;        // 현재 쪽 언저리는 남긴다
+      var c = cache.map[far];
+      cache.px -= c.width * c.height;
+      delete cache.map[far];
+    }
+  }
+
+  async function renderToCache(n) {
+    if (!state.pdf || cache.map[n]) return cache.map[n];
+    var scale = state.scale, dpr = state.dprUsed;
+    var pg = await state.pdf.getPage(n);
+    var vp = pg.getViewport({ scale: scale * dpr });
+    var cv = document.createElement("canvas");
+    cv.width = vp.width; cv.height = vp.height;
+    await pg.render({ canvasContext: cv.getContext("2d"), viewport: vp }).promise;
+    // 그리는 사이 배율이 바뀌었으면 버린다
+    if (scale !== state.scale || dpr !== state.dprUsed) return null;
+    if (!cacheValid()) { cacheReset(); cache.scale = scale; cache.dpr = dpr; }
+    cache.map[n] = cv;
+    cache.px += cv.width * cv.height;
+    cacheEvict();
+    return cv;
+  }
+
+  /*
+   * 한가할 때 한 쪽씩 채운다. 현재 쪽에서 가까운 순서로 — 다음 쪽이 가장
+   * 급하고, 그다음이 이전 쪽이다. 한 번에 몰아 그리면 화면이 멈춘다.
+   */
+  function prefetchAround() {
+    if (prefetching || !state.pdf) return;
+    if (!cacheValid()) { cacheReset(); cache.scale = state.scale; cache.dpr = state.dprUsed; }
+
+    var order = [];
+    for (var d = 1; d <= state.pages; d++) {
+      if (state.page + d <= state.pages) order.push(state.page + d);
+      if (state.page - d >= 1) order.push(state.page - d);
+    }
+    var next = null;
+    for (var i = 0; i < order.length; i++) {
+      if (!cache.map[order[i]]) { next = order[i]; break; }
+    }
+    if (next == null) return;
+    if (cache.px > PAGE_BUDGET_PX) return;         // 예산을 다 썼으면 그만
+
+    prefetching = true;
+    var run = function () {
+      renderToCache(next)
+        .catch(function () {})
+        .then(function () {
+          prefetching = false;
+          prefetchAround();                        // 다음 쪽으로 이어 간다
+        });
+    };
+    if (window.requestIdleCallback) requestIdleCallback(run, { timeout: 800 });
+    else setTimeout(run, 60);
+  }
+
   $("prev").onclick = $("flipPrev").onclick =
     function () { if (state.page > 1) { state.page--; closeMemoEdit(); renderPage(); } };
   $("next").onclick = $("flipNext").onclick =
     function () { if (state.page < state.pages) { state.page++; closeMemoEdit(); renderPage(); } };
-  $("zoomin").onclick = function () {
-    state.scale = Math.min(3, state.scale + 0.25); state.userZoomed = true; renderPage();
-  };
-  $("zoomout").onclick = function () {
-    state.scale = Math.max(0.25, state.scale - 0.25); state.userZoomed = true; renderPage();
-  };
+  /*
+   * 쪽 번호를 직접 넣어 이동한다. 12쪽짜리는 화살표로 넘겨도 되지만
+   * 100쪽 자료에서 "37쪽 봐" 소리를 들으면 화살표로는 답이 없다.
+   */
+  function gotoPage(n) {
+    n = parseInt(n, 10);
+    if (!state.pdf || !(n >= 1 && n <= state.pages)) { $("pageIn").value = state.page; return; }
+    if (n === state.page) return;
+    state.page = n;
+    closeMemoEdit();
+    renderPage();
+  }
+  $("pageIn").addEventListener("keydown", function (e) {
+    if (e.key === "Enter") { e.preventDefault(); gotoPage($("pageIn").value); $("pageIn").blur(); }
+    e.stopPropagation();                    // 좌우 화살표로 쪽이 넘어가지 않게
+  });
+  $("pageIn").addEventListener("focus", function () { $("pageIn").select(); });
+  $("pageIn").addEventListener("blur", function () { $("pageIn").value = state.page; });
+
+  $("zoomin").onclick = function () { zoomPdf(0.25); };
+  $("zoomout").onclick = function () { zoomPdf(-0.25); };
 
   /*
    * 창 크기가 바뀌면 다시 맞춘다. 손으로 확대한 뒤에는 건드리지 않는다 —
@@ -1020,8 +1256,8 @@
     layer.addEventListener("dblclick", function (e) {
       if (e.target !== layer) return;
       var r = layer.getBoundingClientRect();
-      var W = state.viewport.width / state.dpr;
-      var H = state.viewport.height / state.dpr;
+      var W = state.viewport.width / state.dprUsed;
+      var H = state.viewport.height / state.dprUsed;
       var at = { x: (e.clientX - r.left) / W, y: (e.clientY - r.top) / H };
       var card = {
         id: "n" + Date.now(),
@@ -1044,7 +1280,7 @@
   /* ---------- 잘라내기 + 텍스트 뽑기 ---------- */
 
   function cropImage(rect, maxW) {
-    var d = state.dpr;
+    var d = state.dprUsed;
     var sx = rect.x * d, sy = rect.y * d, sw = rect.w * d, sh = rect.h * d;
     var out = document.createElement("canvas");
     var k = Math.min(1, (maxW || 1400) / sw);
@@ -1057,12 +1293,20 @@
     return out;
   }
 
+  // 같은 쪽의 글자를 드래그할 때마다 다시 읽고 있었다. 한 번만 읽고 쟁여 둔다
+  var _tcCache = {};
+  async function textContentOf(pageNo) {
+    if (_tcCache[pageNo]) return _tcCache[pageNo];
+    var page = await state.pdf.getPage(pageNo);
+    _tcCache[pageNo] = await page.getTextContent();
+    return _tcCache[pageNo];
+  }
+
   async function textInRect(rect) {
     try {
-      var page = await state.pdf.getPage(state.page);
       var vp = state.viewport;
-      var tc = await page.getTextContent();
-      var d = state.dpr;
+      var tc = await textContentOf(state.page);
+      var d = state.dprUsed;
       var out = [];
       tc.items.forEach(function (it) {
         var t = pdfjsLib.Util.transform(vp.transform, it.transform);
@@ -1146,10 +1390,10 @@
       page: state.page,
       img: thumb.toDataURL("image/jpeg", 0.72),
       rect: {
-        x: rect.x / (state.viewport.width / state.dpr),
-        y: rect.y / (state.viewport.height / state.dpr),
-        w: rect.w / (state.viewport.width / state.dpr),
-        h: rect.h / (state.viewport.height / state.dpr)
+        x: rect.x / (state.viewport.width / state.dprUsed),
+        y: rect.y / (state.viewport.height / state.dprUsed),
+        w: rect.w / (state.viewport.width / state.dprUsed),
+        h: rect.h / (state.viewport.height / state.dprUsed)
       },
       memo: "", summary: "", detail: "",
       inserted: false,
@@ -1185,7 +1429,8 @@
       (ctx ? "직전에 오려낸 것들: " + ctx + "\n" : "") +
       "\n" + how + "\n" +
       "\n한국어로 답하고, 아래 JSON만 출력하세요. 설명이나 코드블록 표시는 넣지 마세요.\n" +
-      '{"memo": "PDF에 붙일 한 줄 (40자 이내, 이 부분이 뭔지 딱 알아보게)", ' +
+      '{"memo": "PDF에 붙일 핵심 3줄. 각 줄 28자 이내로 끊고 줄바꿈 \\n 으로 구분. ' +
+      '나중에 이 줄만 봐도 무슨 내용인지 알 수 있게 구체적으로.", ' +
       '"summary": "위에서 시킨 대로 쓴 본문"}';
 
     var content = [];
@@ -1200,7 +1445,7 @@
       var parsed;
       try { parsed = JSON.parse(clean); }
       catch (e) { parsed = { memo: clean.slice(0, 40), summary: clean }; }
-      card.memo = (parsed.memo || "").slice(0, 60);
+      card.memo = (parsed.memo || "").slice(0, 180);   // 3줄이 들어가야 한다
       card.summary = parsed.summary || clean;
       card.pending = false;
       setStatus("");
@@ -1292,7 +1537,7 @@
     try {
       // 화면 전체를 그대로 보내면 크므로 폭을 줄인다
       var shot = cropImage(
-        { x: 0, y: 0, w: state.viewport.width / state.dpr, h: state.viewport.height / state.dpr },
+        { x: 0, y: 0, w: state.viewport.width / state.dprUsed, h: state.viewport.height / state.dprUsed },
         1100
       );
       content.push({
@@ -1398,7 +1643,14 @@
 
       var meta = document.createElement("div");
       meta.className = "cardmeta";
-      var pg = document.createElement("span");
+      // 쪽 표시를 누르면 그 쪽으로 간다 — 목록에서 자료로 되짚어 가는 길
+      var jumpable = !(card.qna && card.scope === "all");
+      var pg = document.createElement(jumpable ? "button" : "span");
+      if (jumpable) {
+        pg.className = "gopage";
+        pg.title = card.page + "쪽으로 갑니다";
+        pg.onclick = function () { gotoPage(card.page); };
+      }
       pg.textContent = (card.qna && card.scope === "all" ? "전체" : card.page + "쪽") +
                        (card.qna ? " · 질문" : "");
       if (card.mode && !card.qna) {
@@ -1661,7 +1913,7 @@
 
   function ptPx() {                       // 화면에서 1pt가 몇 px인가
     if (!state.viewport || !state.pageW) return 1;
-    return (state.viewport.width / state.dpr) / state.pageW;
+    return (state.viewport.width / state.dprUsed) / state.pageW;
   }
 
   /*
@@ -1704,8 +1956,8 @@
     Array.prototype.forEach.call(state.layer.querySelectorAll(".memo"), function (m) { m.remove(); });
 
     var k = ptPx();
-    var W = state.viewport.width / state.dpr;
-    var H = state.viewport.height / state.dpr;
+    var W = state.viewport.width / state.dprUsed;
+    var H = state.viewport.height / state.dprUsed;
 
     state.cards.forEach(function (card) {
       if (!card.inserted || card.page !== state.page) return;
@@ -1925,7 +2177,7 @@
     try {
       var page = await state.pdf.getPage(pageNo);
       var vp = page.getViewport({ scale: 1 });
-      var tc = await page.getTextContent();
+      var tc = await textContentOf(pageNo);       // 같은 쪽 글자는 한 번만 읽는다
       tc.items.forEach(function (it) {
         var t = pdfjsLib.Util.transform(vp.transform, it.transform);
         var h = Math.hypot(t[2], t[3]) || 10;
@@ -2105,10 +2357,12 @@
     $("root").appendChild(veil);
   }
 
-  function buildMarkdown() {
+  // 고른 항목만 담는다 (안 주면 전부)
+  function buildMarkdown(only) {
+    var src = only || state.cards;
     var lines = ["# " + state.docName, ""];
     var byPage = {};
-    state.cards.forEach(function (c) {
+    src.forEach(function (c) {
       (byPage[c.page] = byPage[c.page] || []).push(c);
     });
     Object.keys(byPage)
@@ -2135,16 +2389,267 @@
     return lines.join("\n");
   }
 
-  $("expMd").onclick = function () {
-    if (!state.cards.length) { setStatus("내보낼 내용이 아직 없습니다."); return; }
-    var md = buildMarkdown();
-    showExport("정리 내보내기", {
-      note: "복사해서 노션이나 메모장에 붙이거나, 파일로 내려받으세요.",
-      text: md,
-      blob: new Blob([md], { type: "text/markdown" }),
-      filename: state.docName + " 정리.md"
+  /* ---------- 정리 내보내기 (PDF) ---------- */
+
+  /*
+   * 정리를 PDF로 만든다.
+   *
+   * 예전에는 마크다운 텍스트만 줬는데, 오려낸 그림이 빠져서 나중에 보면
+   * 무엇에 대한 정리인지 알 수 없었다. 그림과 설명을 같이 실어야 쓸모가 있다.
+   *
+   * 글자를 캔버스에 그려 쪽 이미지로 심는다. pdf-lib 표준 폰트에 한글이 없어서다
+   * (메모를 이미지로 넣는 것과 같은 이유). 대신 글자를 고를 수는 없다.
+   */
+  async function buildSummaryPdf(cards) {
+    var PW = 595.28, PH = 841.89, M = 44, CW = PW - M * 2;
+    var K = 2.5;                                  // 캔버스 배율. 인쇄해도 뭉개지지 않게
+    var mc = document.createElement("canvas").getContext("2d");
+
+    function font(sz, bold) { return (bold ? "600 " : "") + sz + "px sans-serif"; }
+    function wrap(text, sz, bold, maxW) {
+      mc.font = font(sz, bold);
+      var lines = [], cur = "";
+      String(text == null ? "" : text).split("").forEach(function (ch) {
+        if (ch === "\n") { lines.push(cur); cur = ""; return; }
+        if (mc.measureText(cur + ch).width > maxW) { lines.push(cur); cur = ch; }
+        else cur += ch;
+      });
+      if (cur || !lines.length) lines.push(cur);
+      return lines;
+    }
+
+    // 그림을 먼저 다 읽어 둔다. 크기를 알아야 자리를 잡을 수 있다
+    var imgs = {};
+    await Promise.all(cards.map(function (c) {
+      return new Promise(function (res) {
+        if (!c.img) return res();
+        var im = new Image();
+        im.onload = function () { imgs[c.id] = im; res(); };
+        im.onerror = function () { res(); };
+        im.src = c.img;
+      });
+    }));
+
+    var pages = [], cur = null, y = 0;
+    function newPage() {
+      var cv = document.createElement("canvas");
+      cv.width = Math.round(PW * K);
+      cv.height = Math.round(PH * K);
+      var g = cv.getContext("2d");
+      g.scale(K, K);
+      g.fillStyle = "#ffffff";
+      g.fillRect(0, 0, PW, PH);
+      cur = { cv: cv, g: g };
+      pages.push(cur);
+      y = M;
+    }
+    function need(h) { if (y + h > PH - M) newPage(); }
+
+    function text(str, sz, bold, color, lh, maxW) {
+      var lines = wrap(str, sz, bold, maxW || CW);
+      lines.forEach(function (ln) {
+        need(lh);
+        cur.g.font = font(sz, bold);
+        cur.g.fillStyle = color;
+        cur.g.textBaseline = "alphabetic";
+        cur.g.fillText(ln, M, y + sz);
+        y += lh;
+      });
+    }
+
+    newPage();
+    text(state.docName || "정리", 17, true, "#111111", 25);
+    text(new Date().toLocaleDateString("ko-KR") + " · " + cards.length + "항목",
+         9.5, false, "#8a8a8a", 16);
+    y += 8;
+
+    for (var i = 0; i < cards.length; i++) {
+      var c = cards[i];
+
+      // 항목 사이 구분선. 첫 항목 앞에는 넣지 않는다
+      if (i > 0) {
+        need(18);
+        cur.g.strokeStyle = "#e2e2e2";
+        cur.g.lineWidth = 0.7;
+        cur.g.beginPath();
+        cur.g.moveTo(M, y + 6); cur.g.lineTo(PW - M, y + 6); cur.g.stroke();
+        y += 18;
+      }
+
+      var head = c.qna
+        ? ((c.scope === "all" ? "전체" : c.page + "쪽") + " · 질문")
+        : (c.page + "쪽" + (c.mode ? " · " + c.mode : ""));
+      text(head, 9.5, false, "#9a9a9a", 15);
+
+      if (c.qna) {
+        text("Q. " + (c.question || ""), 11.5, true, "#7a5c00", 17);
+        y += 3;
+        text(c.summary || "", 10.5, false, "#222222", 15.5);
+      } else {
+        var im = imgs[c.id];
+        if (im && im.width) {
+          var w = CW, h = CW * (im.height / im.width);
+          if (h > 300) { h = 300; w = 300 * (im.width / im.height); }
+          need(h + 8);
+          cur.g.drawImage(im, M, y, w, h);
+          cur.g.strokeStyle = "#dddddd";
+          cur.g.lineWidth = 0.6;
+          cur.g.strokeRect(M, y, w, h);
+          y += h + 10;
+        }
+        if (c.memo) { text(c.memo, 11, true, "#7a5c00", 16); y += 2; }
+        text(c.summary || "", 10.5, false, "#222222", 15.5);
+        if (c.detail) { y += 4; text(c.detail, 10, false, "#555555", 15); }
+      }
+      y += 6;
+    }
+
+    var doc = await PDFLib.PDFDocument.create();
+    for (var pi = 0; pi < pages.length; pi++) {
+      var jpg = await doc.embedJpg(pages[pi].cv.toDataURL("image/jpeg", 0.9));
+      var pg = doc.addPage([PW, PH]);
+      pg.drawImage(jpg, { x: 0, y: 0, width: PW, height: PH });
+    }
+    return { blob: new Blob([await doc.save()], { type: "application/pdf" }), pages: pages.length };
+  }
+
+  /*
+   * 무엇을 내보낼지 고르는 창.
+   * 전부 담아 봐야 쓸모없는 것도 섞여 나오므로 항목을 고를 수 있어야 한다.
+   */
+  function showSummaryPicker() {
+    var list = state.cards.filter(function (c) {
+      return c.qna ? c.summary : (!c.manual && (c.summary || c.memo));
     });
-  };
+    if (!list.length) { setStatus("내보낼 정리가 아직 없습니다."); return; }
+
+    closeSheet();
+    var veil = document.createElement("div");
+    veil.className = "veil";
+    veil.addEventListener("pointerdown", function (e) { if (e.target === veil) closeSheet(); });
+
+    var sheet = document.createElement("div");
+    sheet.className = "sheet";
+    sheet.addEventListener("pointerdown", function (e) { e.stopPropagation(); });
+
+    var h = document.createElement("h3");
+    h.textContent = "정리 내보내기";
+    sheet.appendChild(h);
+
+    var body = document.createElement("div");
+    body.className = "sbody";
+    var note = document.createElement("p");
+    note.className = "note";
+    note.textContent = "내보낼 항목을 고르세요. 오려낸 그림과 설명이 함께 들어갑니다.";
+    body.appendChild(note);
+
+    var bar = document.createElement("div");
+    bar.className = "pickbar";
+    var all = document.createElement("button");
+    all.textContent = "모두 선택";
+    var none = document.createElement("button");
+    none.textContent = "모두 해제";
+    var nEl = document.createElement("span");
+    nEl.className = "n";
+    bar.appendChild(all); bar.appendChild(none); bar.appendChild(nEl);
+    body.appendChild(bar);
+
+    var box = document.createElement("div");
+    box.className = "picklist";
+    var boxes = [];
+
+    list.forEach(function (c) {
+      var row = document.createElement("label");
+      row.className = "pickitem";
+      var cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = true;
+      boxes.push({ cb: cb, card: c });
+
+      var thumb = null;
+      if (c.img) { thumb = document.createElement("img"); thumb.src = c.img; }
+
+      var pi = document.createElement("div");
+      pi.className = "pi";
+      var ph = document.createElement("div");
+      ph.className = "pih";
+      ph.textContent = c.qna
+        ? ((c.scope === "all" ? "전체" : c.page + "쪽") + " · 질문")
+        : (c.page + "쪽" + (c.mode ? " · " + c.mode : ""));
+      var pb = document.createElement("div");
+      pb.className = "pib";
+      pb.textContent = c.qna ? (c.question || "") : (c.memo || c.summary || "");
+      pi.appendChild(ph); pi.appendChild(pb);
+
+      row.appendChild(cb);
+      if (thumb) row.appendChild(thumb);
+      row.appendChild(pi);
+      box.appendChild(row);
+      cb.addEventListener("change", count);
+    });
+    body.appendChild(box);
+    sheet.appendChild(body);
+
+    function picked() {
+      return boxes.filter(function (b) { return b.cb.checked; }).map(function (b) { return b.card; });
+    }
+    function count() {
+      var n = picked().length;
+      nEl.textContent = n + " / " + boxes.length + " 고름";
+      make.disabled = n === 0;
+    }
+    all.onclick = function () { boxes.forEach(function (b) { b.cb.checked = true; }); count(); };
+    none.onclick = function () { boxes.forEach(function (b) { b.cb.checked = false; }); count(); };
+
+    var foot = document.createElement("div");
+    foot.className = "sfoot";
+    var make = document.createElement("button");
+    make.className = "primary";
+    make.textContent = "PDF로 만들기";
+    make.onclick = async function () {
+      var chosen = picked();
+      make.disabled = true;
+      make.textContent = "만드는 중…";
+      try {
+        var r = await buildSummaryPdf(chosen);
+        showExport("정리 PDF", {
+          note: chosen.length + "항목 · " + r.pages + "쪽으로 만들었습니다.",
+          blob: r.blob,
+          filename: (state.docName || "정리") + " 정리.pdf"
+        });
+      } catch (e) {
+        make.disabled = false;
+        make.textContent = "PDF로 만들기";
+        setStatus("정리 PDF를 만들지 못했습니다: " + (e.message || e), true);
+      }
+    };
+
+    var md = document.createElement("button");
+    md.textContent = "마크다운 복사";
+    md.title = "노션 등에 붙여 넣을 때";
+    md.onclick = function () {
+      var t = buildMarkdown(picked());
+      navigator.clipboard.writeText(t).then(function () {
+        md.textContent = "복사했습니다";
+        setTimeout(function () { md.textContent = "마크다운 복사"; }, 1600);
+      }).catch(function () { setStatus("복사하지 못했습니다.", true); });
+    };
+
+    var sp = document.createElement("div");
+    sp.className = "spacer";
+    var close = document.createElement("button");
+    close.textContent = "닫기";
+    close.onclick = closeSheet;
+
+    foot.appendChild(make); foot.appendChild(md);
+    foot.appendChild(sp); foot.appendChild(close);
+    sheet.appendChild(foot);
+    veil.appendChild(sheet);
+    $("root").appendChild(veil);
+    count();
+  }
+
+  $("expMd").onclick = showSummaryPicker;
 
   // 한글은 표준 PDF 폰트에 없으므로, 메모를 캔버스에 그려 이미지로 심는다
   /*
@@ -2280,7 +2785,82 @@
     }
   };
 
+  /* ---------- 글자 크기 · 확대 축소 ---------- */
+
+  /*
+   * 정리 패널 글자 크기
+   *
+   * 수업 중에는 크게, 훑을 때는 작게 보고 싶다. 다음에 켤 때도 유지되게
+   * localStorage에 적어 둔다 (IndexedDB는 PDF마다 갈리므로 여기엔 안 맞는다).
+   */
+  var NOTE_FS_MIN = 11, NOTE_FS_MAX = 24;
+  var noteFs = 14;
+  try {
+    var saved = parseFloat(localStorage.getItem("capnote:notefs"));
+    if (saved >= NOTE_FS_MIN && saved <= NOTE_FS_MAX) noteFs = saved;
+  } catch (e) { /* 저장소가 막혀 있어도 기본값으로 돌아간다 */ }
+
+  function applyNoteFs() {
+    document.documentElement.style.setProperty("--note-fs", noteFs + "px");
+    $("fsDown").disabled = noteFs <= NOTE_FS_MIN;
+    $("fsUp").disabled = noteFs >= NOTE_FS_MAX;
+    try { localStorage.setItem("capnote:notefs", String(noteFs)); } catch (e) {}
+  }
+  function bumpNoteFs(d) {
+    noteFs = Math.max(NOTE_FS_MIN, Math.min(NOTE_FS_MAX, noteFs + d));
+    applyNoteFs();
+    setStatus("글자 크기 " + noteFs + "px");
+  }
+  $("fsUp").onclick = function () { bumpNoteFs(1); };
+  $("fsDown").onclick = function () { bumpNoteFs(-1); };
+  applyNoteFs();
+
+  // PDF만 확대·축소한다. 화면 전체가 커지면 정리 패널까지 같이 흔들린다
+  function zoomPdf(d) {
+    if (!state.pdf) return;
+    var next = Math.max(0.25, Math.min(4, state.scale + d));
+    if (Math.abs(next - state.scale) < 0.001) return;
+    state.scale = next;
+    state.userZoomed = true;
+    closeMemoEdit();
+    renderPage();
+  }
+
+  /*
+   * Ctrl+휠은 브라우저·Electron 기본 동작이 "화면 전체 확대"다.
+   * 그걸 막고 PDF 배율만 바꾼다. 막지 않으면 정리 패널 글자까지 같이 커져
+   * 레이아웃이 흐트러진다.
+   */
+  $("stage").addEventListener("wheel", function (e) {
+    if (!e.ctrlKey && !e.metaKey) return;
+    e.preventDefault();
+    zoomPdf(e.deltaY < 0 ? 0.1 : -0.1);
+  }, { passive: false });
+
   document.addEventListener("keydown", function (e) {
+    if (!(e.ctrlKey || e.metaKey)) return;
+
+    // Ctrl+> / Ctrl+< 로 정리 패널 글자 크기
+    if (e.key === ">" || e.key === "." ) { e.preventDefault(); bumpNoteFs(1); return; }
+    if (e.key === "<" || e.key === ",") { e.preventDefault(); bumpNoteFs(-1); return; }
+
+    // Ctrl +/- 도 화면 전체 대신 PDF만
+    if (e.key === "+" || e.key === "=") { e.preventDefault(); zoomPdf(0.25); return; }
+    if (e.key === "-" || e.key === "_") { e.preventDefault(); zoomPdf(-0.25); return; }
+    if (e.key === "0") {                          // 원래대로 = 창에 맞추기
+      e.preventDefault();
+      if (!state.pdf) return;
+      state.pdf.getPage(state.page).then(function (pg) {
+        state.scale = fitScale(pg);
+        state.userZoomed = false;
+        renderPage();
+        setStatus("창에 맞췄습니다");
+      });
+    }
+  });
+
+  document.addEventListener("keydown", function (e) {
+    if (e.ctrlKey || e.metaKey) return;
     if (!state.pdf) return;
     if (e.key === "ArrowLeft") $("prev").click();
     if (e.key === "ArrowRight") $("next").click();
