@@ -492,9 +492,22 @@
     padding: 10px 12px;
     border-top: 1px solid var(--rule);
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
   }
   .foot button { flex: 1; font-size: 13px; padding: 8px; }
+
+  /* 굽기 선택은 버튼 아래 한 줄을 통째로 쓴다 — 설명이 길어 옆에 붙으면 잘린다 */
+  .foot .burn {
+    flex: 1 0 100%;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11.5px;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .foot .burn input { margin: 0; }
 
   .status {
     padding: 6px 14px;
@@ -804,6 +817,10 @@
         <option value="page">이 쪽만</option>
       </select>
       <button id="expPdf" disabled>메모 넣은 PDF</button>
+      <label class="burn" title="메모를 페이지에 그림처럼 그려 넣습니다. 주석을 안 그리는 뷰어에서도 보이지만, 구운 파일은 이 앱에서 다시 고칠 수 없습니다">
+        <input type="checkbox" id="expBurn" disabled />
+        메모를 그림으로 굽기 (모든 뷰어에서 보임 · 다시 고칠 수 없음)
+      </label>
     </div>
   </div>
 </div>
@@ -1405,7 +1422,7 @@
 
     $("pageIn").value = state.page;
     $("pageTotal").textContent = state.pages;
-    ["prev", "next", "zoomin", "zoomout", "expMd", "expPdf", "q", "qsend", "qscope", "expScope", "toolClip", "toolHl", "mfsUp", "mfsDown"].forEach(function (id) {
+    ["prev", "next", "zoomin", "zoomout", "expMd", "expPdf", "q", "qsend", "qscope", "expScope", "expBurn", "toolClip", "toolHl", "mfsUp", "mfsDown"].forEach(function (id) {
       $(id).disabled = false;
     });
     $("prev").disabled = state.page <= 1;
@@ -1799,7 +1816,7 @@
       (ctx ? "직전에 오려낸 것들: " + ctx + "\n" : "") +
       "\n" + how + "\n" +
       "\n한국어로 답하고, 아래 JSON만 출력하세요. 설명이나 코드블록 표시는 넣지 마세요.\n" +
-      '{"memo": "PDF에 붙일 핵심 3줄. 각 줄 28자 이내로 끊고 줄바꿈 \\n 으로 구분. ' +
+      '{"memo": "PDF에 붙일 핵심 3~5줄. 각 줄 28자 이내로 끊고 줄바꿈 \\n 으로 구분. ' +
       '나중에 이 줄만 봐도 무슨 내용인지 알 수 있게 구체적으로.", ' +
       '"summary": "위에서 시킨 대로 쓴 본문"}';
 
@@ -1815,7 +1832,7 @@
       var parsed;
       try { parsed = JSON.parse(clean); }
       catch (e) { parsed = { memo: clean.slice(0, 40), summary: clean }; }
-      card.memo = (parsed.memo || "").slice(0, 180);   // 3줄이 들어가야 한다
+      card.memo = (parsed.memo || "").slice(0, 300);   // 3~5줄이 들어가야 한다
       card.summary = parsed.summary || clean;
       card.pending = false;
       setStatus("");
@@ -2374,8 +2391,25 @@
     return { w: MEMO.w, h: MEMO.pad * 2 + lines.length * MEMO.lh };
   }
 
+  /*
+   * 편집 중인 메모를 닫는다.
+   *
+   * 빈 곳을 누르거나 쪽을 넘기면 편집이 끝나야 한다. 이때 적던 내용을 그냥
+   * 버리면 한참 쓴 글이 사라진다 — 저장 버튼을 안 눌렀다고 글이 없어지는 쪽이
+   * 더 놀라운 일이라, 닫으면서 저장까지 한다.
+   */
+  var memoEditor = null;                    // 지금 열려 있는 편집기 { card, ta }
   function closeMemoEdit() {
+    var open = memoEditor;
+    memoEditor = null;
+    var had = state.cards.some(function (c) { return c.editingMemo; });
     state.cards.forEach(function (c) { c.editingMemo = false; });
+    if (open && open.ta.value !== (open.card.memo || "")) {
+      open.card.memo = open.ta.value;
+      saveCard(open.card);
+      renderCards();
+    }
+    if (had) drawMemos();
   }
 
   // 자리를 아직 못 정한 옛 카드를 위한 최소한의 자리
@@ -2488,6 +2522,7 @@
 
   function drawMemos() {
     if (!state.layer || !state.viewport) return;
+    memoEditor = null;                      // 아래에서 다시 그리며 새로 잡는다
     Array.prototype.forEach.call(state.layer.querySelectorAll(".memo"), function (m) { m.remove(); });
 
     var k = ptPx();
@@ -2518,6 +2553,7 @@
         ta.value = card.memo || "";
         ta.setAttribute("aria-label", "메모 내용");
         el.appendChild(ta);
+        memoEditor = { card: card, ta: ta };
 
         var acts = document.createElement("div");
         acts.className = "memoacts";
@@ -2525,6 +2561,7 @@
         ok.className = "primary";
         ok.textContent = "저장";
         ok.onclick = function () {
+          memoEditor = null;
           card.memo = ta.value;
           card.editingMemo = false;
           saveCard(card);
@@ -2534,6 +2571,7 @@
         var rm = document.createElement("button");
         rm.textContent = card.manual ? "지우기" : "메모 빼기";
         rm.onclick = function () {
+          memoEditor = null;
           if (card.manual) {
             var at = state.cards.indexOf(card);
             state.cards = state.cards.filter(function (c) { return c !== card; });
@@ -3306,6 +3344,14 @@
      * 기본은 "메모 있는 쪽만" — 보통 그것만 다시 볼 것이기 때문이다.
      */
     var scope = $("expScope").value;
+    /*
+     * 굽기 — 메모를 주석이 아니라 페이지 그림으로 그려 넣는다.
+     *
+     * 주석으로 넣는 편이 낫다(다시 고칠 수 있다). 다만 주석을 아예 안 그리는
+     * 뷰어가 있어서, 거기서는 메모가 통째로 안 보인다. 그런 곳에 낼 파일은
+     * 구워서 내보낸다. 대신 구운 것은 지울 수 없으므로 되열어 고칠 수 없다.
+     */
+    var burn = $("expBurn").checked;
     if (scope === "page" && !inserted.some(function (c) { return c.page === state.page; })) {
       setStatus("이 쪽에는 붙인 메모가 없습니다.");
       return;
@@ -3360,9 +3406,17 @@
         var pw = pg.getWidth(), ph = pg.getHeight();
         var rgb = penOf(mk.color).rgb;
         mk.rects.forEach(function (r) {
-          addMarkAnnot(doc, pg, {
-            x: r.x * pw, y: ph - (r.y + r.h) * ph, w: r.w * pw, h: r.h * ph
-          }, rgb);
+          var q = { x: r.x * pw, y: ph - (r.y + r.h) * ph, w: r.w * pw, h: r.h * ph };
+          if (burn) {
+            // 곱하기로 겹쳐야 밑의 글자가 비쳐 형광펜처럼 보인다
+            pg.drawRectangle({
+              x: q.x, y: q.y, width: q.w, height: q.h,
+              color: PDFLib.rgb(rgb[0], rgb[1], rgb[2]),
+              blendMode: "Multiply"
+            });
+          } else {
+            addMarkAnnot(doc, pg, q, rgb);
+          }
         });
       });
 
@@ -3381,12 +3435,20 @@
 
         // 화면에서 맞춰 둔 테두리를 그대로 넣는다 (뺐으면 안 넣는다)
         if (card.box) {
-          addBoxAnnot(doc, pg, {
+          var bx = {
             x: card.box.x * pw,
             y: ph - (card.box.y + card.box.h) * ph,
             w: card.box.w * pw,
             h: card.box.h * ph
-          });
+          };
+          if (burn) {
+            pg.drawRectangle({
+              x: bx.x, y: bx.y, width: bx.w, height: bx.h,
+              borderColor: PDFLib.rgb(1, 0.85, 0.24), borderWidth: 1.5
+            });
+          } else {
+            addBoxAnnot(doc, pg, bx);
+          }
         }
 
         var memo = memoToPng(card.memo || card.summary, card.manual);
@@ -3397,7 +3459,8 @@
         var pin = card.pin || fallbackPin(card, memo);
         var x = Math.max(m, Math.min(pin.x * pw, pw - memo.w - m));
         var y = Math.max(m, Math.min(ph - pin.y * ph - memo.h, ph - memo.h - m));
-        addMemoAnnot(doc, pg, png.ref, x, y, memo.w, memo.h, card.memo || "");
+        if (burn) pg.drawImage(png, { x: x, y: y, width: memo.w, height: memo.h });
+        else addMemoAnnot(doc, pg, png.ref, x, y, memo.w, memo.h, card.memo || "");
       }
 
       /*
@@ -3421,13 +3484,21 @@
         ? state.marks.filter(function (m) { return pageMap[m.page]; })
             .map(function (m) { return { id: m.id, page: pageMap[m.page], color: m.color, rects: m.rects }; })
         : state.marks;
-      saveCardsIntoPdf(doc, carriedCards, carriedMarks);
+      /*
+       * 구운 파일에는 카드 정보를 심지 않는다.
+       * 심어 두면 다시 열었을 때 이미 구워진 메모 위에 같은 메모가 또 그려져
+       * 두 겹으로 보인다. 이어서 고칠 때는 원본을 열면 된다 — 메모는 원본
+       * 이름으로 브라우저에 남아 있다.
+       */
+      if (!burn) saveCardsIntoPdf(doc, carriedCards, carriedMarks);
 
       var out = await doc.save();
       showExport("메모 넣은 PDF", {
         note: "메모 " + carriedCards.filter(function (c) { return c.inserted; }).length +
               "개 · " + doc.getPageCount() + "쪽입니다. " +
-              "내려받아 굿노트 등에서 이어 쓰세요. 이 파일을 다시 이 앱에 열면 메모를 그대로 고칠 수 있습니다.",
+              (burn
+                ? "메모를 페이지에 구웠습니다. 어떤 뷰어에서도 보이지만 이 파일로는 다시 고칠 수 없습니다 — 이어서 고칠 때는 원본을 여세요."
+                : "내려받아 굿노트 등에서 이어 쓰세요. 이 파일을 다시 이 앱에 열면 메모를 그대로 고칠 수 있습니다."),
         blob: new Blob([out], { type: "application/pdf" }),
         filename: state.docName + " 메모.pdf"
       });

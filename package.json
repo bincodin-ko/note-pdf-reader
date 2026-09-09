@@ -1,7 +1,7 @@
 {
   "name": "capnote",
   "productName": "오려둔 공책",
-  "version": "0.8.1",
+  "version": "0.9.0",
   "description": "PDF 강의자료에서 영역을 오려 AI 정리를 받고 그 자리에 메모로 남기는 학습 도구",
   "author": "bincodin-ko",
   "desktopName": "capnote.desktop",
