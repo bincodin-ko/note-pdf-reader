@@ -57,7 +57,18 @@ jobs:
         run: npm i --no-save electron@44.2.0 electron-builder@26.15.3
 
       - name: 설치파일 만들기
-        run: npx electron-builder ${{ matrix.args }} --publish never
+        shell: bash
+        # 태그 빌드는 package.json 버전 그대로.
+        # 수동 실행은 뒤에 실행 번호를 붙인다 — 안 붙이면 파일명이 매번 같아서
+        # 새로 받은 건지 예전 것을 다시 연 건지 구분할 방법이 없다.
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            npx electron-builder ${{ matrix.args }} --publish never
+          else
+            base=$(node -p "require('./package.json').version")
+            npx electron-builder ${{ matrix.args }} --publish never \
+              -c.extraMetadata.version="$base-build.${{ github.run_number }}"
+          fi
         env:
           # 서명 인증서가 없다. 자동 탐색을 켜두면 macOS 빌드가 거기서 멈춘다.
           # 서명 없이 배포하면 첫 실행에 경고가 뜨는데, 그건 README에 적어뒀다
