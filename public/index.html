@@ -162,60 +162,52 @@
     pointer-events: none;
   }
 
-  .pin {
+  /*
+   * 화면의 메모 = 내보낸 PDF의 메모
+   *
+   * 예전에는 화면엔 21px 핀을, PDF엔 230pt 상자를 그렸다. 서로 다른 물건이라
+   * "넣을 때 본 자리"가 내보내면 의미가 없었다. 이제 치수를 PDF 포인트로 한 번만
+   * 정하고, 화면은 그걸 배율만 맞춰 그린다. 크기·줄바꿈·자리가 같아진다.
+   */
+  .memo {
     position: absolute;
-    background: var(--marker);
-    color: #1c1500;
-    border-radius: 4px;
-    font-size: 11px;
-    font-weight: 700;
-    width: 21px;
-    height: 21px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    line-height: 1;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-  }
-
-  .pinnote {
-    position: absolute;
+    box-sizing: border-box;
     background: #fff8dc;
     color: #241d00;
-    border-left: 3px solid var(--marker);
-    border-radius: 3px;
-    padding: 7px 9px;
-    font-size: 12px;
-    line-height: 1.45;
-    width: 190px;
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
-    z-index: 5;
+    border-left-style: solid;
+    border-left-color: var(--marker);
+    font-family: sans-serif;
+    cursor: grab;
+    overflow: hidden;
+    z-index: 4;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.28);
   }
-  .pinnote textarea {
-    width: 100%;
+  .memo.manual { border-left-color: #4aa3e0; }
+  .memo:hover { outline: 1px solid var(--marker); }
+  .memo.editing { cursor: default; overflow: visible; z-index: 8; }
+  .memo .mline { white-space: pre; }
+  .memo textarea {
+    position: absolute;
+    inset: 0;
+    box-sizing: border-box;
     border: 0;
-    background: transparent;
-    font: inherit;
+    background: #fffdf2;
     color: inherit;
+    font: inherit;
+    padding: inherit;
     resize: none;
     outline: none;
-    overflow: hidden;
   }
-  .pinnote .pinbtns {
-    display: flex;
-    gap: 8px;
+  .memoacts {
+    position: absolute;
+    top: 100%;
+    left: 0;
     margin-top: 5px;
-    font-size: 11px;
+    display: flex;
+    gap: 6px;
+    white-space: nowrap;
   }
-  .pinnote .pinbtns button {
-    padding: 2px 7px;
-    font-size: 11px;
-    background: rgba(0, 0, 0, 0.06);
-    border-color: rgba(0, 0, 0, 0.15);
-    color: #241d00;
-    border-radius: 4px;
-  }
+  .memoacts button { font-size: 12px; padding: 4px 9px; border-radius: 5px; }
 
   .notes {
     width: 350px;
@@ -402,6 +394,46 @@
     line-height: 1.5;
   }
 
+  /* 질문 범위 토글 — 이 쪽 / 전체 */
+  /* 오려낸 뒤 무엇을 시킬지 고르는 칸 */
+  .pick { padding-top: 2px; }
+  .picktitle { font-size: 12.5px; color: var(--muted); margin-bottom: 8px; }
+  .pickrow { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 9px; }
+  .pickrow button { font-size: 12px; padding: 5px 10px; border-radius: 6px; }
+  .pickfree { display: flex; gap: 6px; }
+  .pickfree input {
+    flex: 1; min-width: 0; font: inherit; font-size: 12.5px;
+    color: var(--text); background: var(--ink);
+    border: 1px solid var(--rule); border-radius: 6px; padding: 6px 8px;
+  }
+  .pickfree input:focus { outline: none; border-color: var(--marker); }
+  .pickfree button { font-size: 12px; padding: 6px 10px; }
+  .modetag { color: var(--marker); font-size: 11.5px; }
+
+  .scope {
+    font-size: 11.5px;
+    padding: 6px 8px;
+    border-radius: 7px;
+    color: var(--muted);
+    flex: 0 0 auto;
+  }
+  .scope.all { color: var(--marker); border-color: rgba(255, 216, 61, 0.5); }
+
+  /* 답에서 쪽 번호를 뽑아 만든 이동 버튼 */
+  .jump { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
+  .jump button { font-size: 11.5px; padding: 3px 9px; border-radius: 5px; }
+
+  .foot select {
+    font: inherit;
+    font-size: 12px;
+    color: var(--text);
+    background: var(--ink);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 7px 6px;
+    flex: 0 0 auto;
+  }
+
   .foot {
     padding: 10px 12px;
     border-top: 1px solid var(--rule);
@@ -479,15 +511,6 @@
   }
   .sheet .sfoot .spacer { flex: 1; }
 
-  .pin.manual { background: #9fd8ff; }
-
-  /*
-   * 양옆 페이지 넘김 버튼
-   *
-   * flex 흐름 안에 두어 페이지가 가운데를 유지하게 한다 (absolute로 얹으면
-   * 좁은 창에서 페이지 위를 덮어 드래그 선택을 가로챈다).
-   * 세로로는 sticky로 붙여, 긴 페이지를 스크롤해도 손이 닿는 자리에 남는다.
-   */
   .pageflip {
     position: sticky;
     top: 42vh;
@@ -512,6 +535,7 @@
   /* 첫/끝 쪽에서는 감추되 자리는 남긴다 — 사라지면 페이지가 좌우로 튄다 */
   .pageflip:disabled { opacity: 0; pointer-events: none; }
   .pageflip.gone { display: none; }
+
 
   @media (max-width: 820px) {
     .main { flex-direction: column; }
@@ -565,11 +589,17 @@
       </div>
     </div>
     <div class="askbar">
+      <button class="scope" id="qscope" title="질문 범위를 바꿉니다" disabled>이 쪽</button>
       <input id="q" type="text" placeholder="이 쪽에 대해 물어보기" maxlength="300" disabled />
       <button id="qsend" disabled>묻기</button>
     </div>
     <div class="foot">
       <button id="expMd" disabled>정리 내보내기</button>
+      <select id="expScope" disabled title="어느 쪽을 내보낼지">
+        <option value="memo">메모 있는 쪽만</option>
+        <option value="all">전체 쪽</option>
+        <option value="page">이 쪽만</option>
+      </select>
       <button id="expPdf" disabled>메모 넣은 PDF</button>
     </div>
   </div>
@@ -703,6 +733,8 @@
     userZoomed: false,      // 손으로 확대한 뒤에는 자동 맞춤이 끼어들지 않게
     dpr: Math.min(window.devicePixelRatio || 1, 2),
     viewport: null,
+    pageW: 0,               // 쪽 크기(PDF 포인트). 메모를 같은 치수로 그리려면 필요하다
+    pageH: 0,
     canvas: null,
     layer: null,
     cards: [],            // {id,page,img,memo,summary,detail,rect,inserted}
@@ -763,7 +795,7 @@
       } catch (e) {}
     }
     renderCards();
-    drawPins();
+    drawMemos();
   }
 
   /* ---------- PDF 열기 ---------- */
@@ -778,17 +810,40 @@
       var buf = await f.arrayBuffer();
       state.bytes = buf.slice(0);                       // pdf.js가 원본을 가져가므로 사본 보관
       state.pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+
+      /*
+       * 우리가 내보낸 PDF라면 메모를 되살린다.
+       *
+       * 메모 주석은 벗겨내고 다시 읽는다. 안 벗기면 주석이 그려진 그림 위에
+       * 우리 메모 상자가 또 얹혀 두 겹으로 보이고, 다시 내보낼 때도 지저분해진다.
+       * 벗겨낸 바이트를 원본 삼아 두므로 이후 흐름은 처음 여는 것과 같다.
+       */
+      var carried = await readCardsFromPdf(state.pdf);
+      if (carried) {
+        var cleaned = await stripMemoAnnots(state.bytes);
+        if (cleaned) {
+          state.bytes = cleaned.slice(0);
+          state.pdf = await pdfjsLib.getDocument({ data: cleaned }).promise;
+        }
+      }
+
       state.pages = state.pdf.numPages;
       state.page = 1;
       state.docName = f.name.replace(/\.pdf$/i, "");
       state.docKey = (f.name + ":" + f.size).replace(/[^\w가-힣.:-]/g, "_").slice(0, 120);
       $("empty").style.display = "none";
+      _textCache = {};
 
       // 열자마자 창에 맞춘다
       state.scale = fitScale(await state.pdf.getPage(1));
       state.userZoomed = false;
 
       await loadCards();
+      if (carried && !state.cards.length) {
+        state.cards = carried;
+        state.cards.forEach(function (c) { saveCard(c); });
+        setStatus("이 PDF에 들어 있던 메모 " + carried.length + "개를 불러왔습니다.");
+      }
       await renderPage();
       setStatus(state.docName + " · " + state.pages + "쪽");
     } catch (err) {
@@ -825,6 +880,10 @@
     var vp = page.getViewport({ scale: state.scale * state.dpr });
     state.viewport = vp;
 
+    var vp1 = page.getViewport({ scale: 1 });     // 포인트 단위 쪽 크기
+    state.pageW = vp1.width;
+    state.pageH = vp1.height;
+
     var wrap = document.querySelector(".pagewrap");
     if (!wrap) {
       wrap = document.createElement("div");
@@ -851,7 +910,7 @@
     try { await state.renderTask.promise; } catch (e) { return; }
 
     $("pageno").textContent = state.page + " / " + state.pages;
-    ["prev", "next", "zoomin", "zoomout", "expMd", "expPdf", "q", "qsend"].forEach(function (id) {
+    ["prev", "next", "zoomin", "zoomout", "expMd", "expPdf", "q", "qsend", "qscope", "expScope"].forEach(function (id) {
       $(id).disabled = false;
     });
     $("prev").disabled = state.page <= 1;
@@ -862,13 +921,33 @@
     $("flipPrev").disabled = $("prev").disabled;
     $("flipNext").disabled = $("next").disabled;
 
-    drawPins();
+    drawMemos();
+    refillThumbs();
+  }
+
+  /*
+   * 되살린 카드에는 썸네일이 없다 (파일을 가볍게 하려고 안 심었다).
+   * 지금 그린 쪽에 해당하는 것만 다시 잘라 채운다.
+   */
+  function refillThumbs() {
+    var changed = false;
+    state.cards.forEach(function (c) {
+      if (c.img || c.qna || c.manual || c.page !== state.page) return;
+      if (!c.rect || !(c.rect.w > 0)) return;
+      var W = state.viewport.width / state.dpr, H = state.viewport.height / state.dpr;
+      try {
+        c.img = cropImage({ x: c.rect.x * W, y: c.rect.y * H, w: c.rect.w * W, h: c.rect.h * H }, 560)
+                  .toDataURL("image/jpeg", 0.72);
+        changed = true;
+      } catch (e) {}
+    });
+    if (changed) renderCards();
   }
 
   $("prev").onclick = $("flipPrev").onclick =
-    function () { if (state.page > 1) { state.page--; closePin(); renderPage(); } };
+    function () { if (state.page > 1) { state.page--; closeMemoEdit(); renderPage(); } };
   $("next").onclick = $("flipNext").onclick =
-    function () { if (state.page < state.pages) { state.page++; closePin(); renderPage(); } };
+    function () { if (state.page < state.pages) { state.page++; closeMemoEdit(); renderPage(); } };
   $("zoomin").onclick = function () {
     state.scale = Math.min(3, state.scale + 0.25); state.userZoomed = true; renderPage();
   };
@@ -888,7 +967,7 @@
       var s = fitScale(await state.pdf.getPage(state.page));
       if (Math.abs(s - state.scale) < 0.01) return;
       state.scale = s;
-      closePin();
+      closeMemoEdit();
       renderPage();
     }, 150);
   });
@@ -900,7 +979,7 @@
 
     layer.addEventListener("pointerdown", function (e) {
       if (e.target !== layer) return;      // 핀이나 메모를 누른 경우는 제외
-      closePin();
+      closeMemoEdit();
       layer.setPointerCapture(e.pointerId);
       var r = layer.getBoundingClientRect();
       start = { x: e.clientX - r.left, y: e.clientY - r.top };
@@ -937,12 +1016,13 @@
       box = null; start = null;
     });
 
-    // 직접 쓰는 메모: 빈 곳을 더블클릭하면 그 자리에 텍스트 상자가 생긴다
+    // 직접 쓰는 메모: 빈 곳을 더블클릭하면 그 자리에 생기고 바로 고칠 수 있다
     layer.addEventListener("dblclick", function (e) {
       if (e.target !== layer) return;
       var r = layer.getBoundingClientRect();
       var W = state.viewport.width / state.dpr;
       var H = state.viewport.height / state.dpr;
+      var at = { x: (e.clientX - r.left) / W, y: (e.clientY - r.top) / H };
       var card = {
         id: "n" + Date.now(),
         page: state.page,
@@ -950,13 +1030,14 @@
         inserted: true,
         memo: "",
         summary: "",
-        rect: { x: (e.clientX - r.left) / W, y: (e.clientY - r.top) / H, w: 0, h: 0 }
+        rect: { x: at.x, y: at.y, w: 0, h: 0 },
+        pin: at            // 누른 자리가 곧 의도다. 자동 배치를 끼워 넣지 않는다
       };
       state.cards.push(card);
       saveCard(card);
-      drawPins();
-      var pins = state.layer.querySelectorAll(".pin");
-      openPin(card, pins[pins.length - 1]);
+      closeMemoEdit();
+      card.editingMemo = true;
+      drawMemos();
     });
   }
 
@@ -1030,6 +1111,31 @@
     }).join(" / ");
   }
 
+  /*
+   * 오려낸 다음에 무엇을 시킬지 고른다.
+   *
+   * 예전에는 드래그하자마자 "핵심 정리"를 써 버렸다. 그런데 필요한 게 매번
+   * 다르다 — 시험 포인트만 볼 때가 있고, 아예 모르는 개념이라 12살에게
+   * 설명하듯 풀어야 할 때가 있다. 한 번 부르고 마는 대신 고르게 한다.
+   * 위쪽 "묻지 말고 자동으로 넣기"를 켜면 핵심 정리로 바로 간다.
+   */
+  var ASK_MODES = [
+    { id: "core",  label: "핵심만 정리",
+      how: "3~5줄로 짧고 구체적으로 정리하세요. 수업 중에 읽을 것입니다." },
+    { id: "deep",  label: "자세히 설명",
+      how: "왜 그런지, 어디에 쓰이는지까지 풀어서 설명하세요. 10줄 이내." },
+    { id: "kid",   label: "12살에게 설명하듯",
+      how: "12살이 알아들을 수 있게 쉬운 말과 비유로 풀어서 설명하세요. " +
+           "전문용어를 쓰면 바로 옆에 뜻을 붙이세요. 10줄 이내." },
+    { id: "exam",  label: "시험 포인트",
+      how: "시험에 나올 만한 것만 뽑으세요. 외워야 할 정의·수치·조건 위주로 5줄 이내." },
+    { id: "terms", label: "용어 풀이",
+      how: "이 부분에 나오는 용어만 뽑아 '용어 — 뜻' 형식으로 한 줄씩 적으세요." }
+  ];
+
+  // 오려낸 원본 그림과 원문은 카드에 넣지 않는다. 저장소에 들어가면 무겁다
+  var pendingCrops = {};
+
   async function capture(rect) {
     var full = cropImage(rect, 1400);
     var thumb = cropImage(rect, 560);
@@ -1045,35 +1151,51 @@
         w: rect.w / (state.viewport.width / state.dpr),
         h: rect.h / (state.viewport.height / state.dpr)
       },
-      memo: "",
-      summary: "",
-      detail: "",
+      memo: "", summary: "", detail: "",
       inserted: false,
-      pending: true
+      awaiting: true                       // 무엇을 시킬지 아직 안 골랐다
     };
+
+    pendingCrops[id] = {
+      b64: full.toDataURL("image/jpeg", 0.85).split(",")[1],
+      text: await textInRect(rect)
+    };
+
     state.cards.push(card);
     renderCards();
 
-    var text = await textInRect(rect);
-    var b64 = full.toDataURL("image/jpeg", 0.85).split(",")[1];
+    if ($("auto").checked) runCard(card, ASK_MODES[0]);
+  }
+
+  async function runCard(card, mode, free) {
+    var crop = pendingCrops[card.id] || { b64: null, text: "" };
+    card.awaiting = false;
+    card.pending = true;
+    card.failed = false;
+    card.mode = mode ? mode.label : "직접 물음";
+    card.askText = free || "";
+    renderCards();
+
     var ctx = recentContext();
+    var how = mode ? mode.how : ("다음 질문에 답하세요: " + free);
 
     var prompt =
-      "대학 강의자료 " + state.page + "쪽에서 오려낸 부분입니다.\n" +
-      (text ? "이 영역의 원문 텍스트: " + text + "\n" : "") +
+      "대학 강의자료 " + card.page + "쪽에서 오려낸 부분입니다.\n" +
+      (crop.text ? "이 영역의 원문 텍스트: " + crop.text + "\n" : "") +
       (ctx ? "직전에 오려낸 것들: " + ctx + "\n" : "") +
+      "\n" + how + "\n" +
       "\n한국어로 답하고, 아래 JSON만 출력하세요. 설명이나 코드블록 표시는 넣지 마세요.\n" +
       '{"memo": "PDF에 붙일 한 줄 (40자 이내, 이 부분이 뭔지 딱 알아보게)", ' +
-      '"summary": "3~5줄 정리. 수업 중에 읽을 것이므로 짧고 구체적으로."}';
+      '"summary": "위에서 시킨 대로 쓴 본문"}';
+
+    var content = [];
+    if (crop.b64) {
+      content.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: crop.b64 } });
+    }
+    content.push({ type: "text", text: prompt });
 
     try {
-      var raw = await callClaude([{
-        role: "user",
-        content: [
-          { type: "image", source: { type: "base64", media_type: "image/jpeg", data: b64 } },
-          { type: "text", text: prompt }
-        ]
-      }]);
+      var raw = await callClaude([{ role: "user", content: content }]);
       var clean = raw.replace(/```json|```/g, "").trim();
       var parsed;
       try { parsed = JSON.parse(clean); }
@@ -1084,17 +1206,19 @@
       setStatus("");
     } catch (err) {
       card.pending = false;
-      card.summary = "정리를 받아오지 못했습니다. 카드의 다시 시도를 눌러 보세요.";
+      card.summary = "정리를 받아오지 못했습니다.";
       card.failed = true;
       setStatus(String(err.message || err), true);
     }
 
-    if ($("auto").checked && !card.failed) {
-      card.inserted = true;
-    }
     renderCards();
-    drawPins();
     saveCard(card);
+
+    if (!card.failed && $("auto").checked) {
+      card.inserted = true;
+      await placeMemoFor(card);
+      renderCards(); drawMemos(); saveCard(card);
+    }
   }
 
   async function expand(card) {
@@ -1130,6 +1254,7 @@
       id: "q" + Date.now(),
       page: state.page,
       qna: true,
+      scope: qAll ? "all" : "page",
       question: text,
       summary: "",
       pending: true
@@ -1139,6 +1264,31 @@
     $("cards").scrollTop = $("cards").scrollHeight;
 
     var content = [];
+    if (card.scope === "all") {
+      var digest = await allPagesDigest();
+      content.push({
+        type: "text",
+        text:
+          "다음은 강의자료 " + state.pages + "쪽 전체의 원문입니다.\n\n" + digest +
+          "\n\n학생 질문: " + text + "\n\n" +
+          "한국어로 짧고 구체적으로 답하세요. 6줄 이내. " +
+          "찾은 내용이 어느 쪽에 있는지 반드시 \"N쪽\" 형식으로 밝히세요. " +
+          "자료에 없으면 없다고 먼저 말하세요."
+      });
+      try {
+        card.summary = await callClaude([{ role: "user", content: content }]);
+        setStatus("");
+      } catch (err) {
+        card.summary = "답을 받아오지 못했습니다.";
+        card.failed = true;
+        setStatus(String(err.message || err), true);
+      }
+      card.pending = false;
+      renderCards();
+      saveCard(card);
+      return;
+    }
+
     try {
       // 화면 전체를 그대로 보내면 크므로 폭을 줄인다
       var shot = cropImage(
@@ -1174,6 +1324,36 @@
     renderCards();
     saveCard(card);
   }
+
+  /*
+   * 전체 쪽에서 찾기
+   *
+   * "어떤 내용이 어느 쪽에 있더라"를 찾을 때 쓴다. 그림은 못 보내므로
+   * 쪽마다 원문을 조금씩 잘라 붙여 보낸다. 한 번 읽은 건 쟁여 둔다.
+   */
+  var _allText = null;
+  async function allPagesDigest() {
+    if (_allText) return _allText;
+    var out = [];
+    for (var i = 1; i <= state.pages; i++) {
+      try {
+        var pg = await state.pdf.getPage(i);
+        var tc = await pg.getTextContent();
+        var t = tc.items.map(function (x) { return x.str; }).join(" ").replace(/\s+/g, " ").trim();
+        if (t) out.push(i + "쪽: " + t.slice(0, 700));
+      } catch (e) { /* 한 쪽을 못 읽어도 나머지로 답한다 */ }
+    }
+    _allText = out.join("\n").slice(0, 60000);
+    return _allText;
+  }
+
+  var qAll = false;
+  $("qscope").onclick = function () {
+    qAll = !qAll;
+    $("qscope").classList.toggle("all", qAll);
+    $("qscope").textContent = qAll ? "전체" : "이 쪽";
+    $("q").placeholder = qAll ? "전체 쪽에서 찾아보기" : "이 쪽에 대해 물어보기";
+  };
 
   function sendQuestion() {
     var el = $("q");
@@ -1219,7 +1399,14 @@
       var meta = document.createElement("div");
       meta.className = "cardmeta";
       var pg = document.createElement("span");
-      pg.textContent = card.page + "쪽" + (card.qna ? " · 질문" : "");
+      pg.textContent = (card.qna && card.scope === "all" ? "전체" : card.page + "쪽") +
+                       (card.qna ? " · 질문" : "");
+      if (card.mode && !card.qna) {
+        var tag = document.createElement("span");
+        tag.className = "modetag";
+        tag.textContent = " · " + card.mode;
+        pg.appendChild(tag);
+      }
 
       var acts = document.createElement("span");
       acts.style.display = "flex";
@@ -1238,13 +1425,58 @@
         state.cards = state.cards.filter(function (c) { return c !== card; });
         deleteCard(card);
         renderCards();
-        drawPins();
+        drawMemos();
       };
       acts.appendChild(del);
 
       meta.appendChild(pg);
       meta.appendChild(acts);
       body.appendChild(meta);
+
+      // 아직 무엇을 시킬지 안 골랐다 — 여기서 고른다
+      if (card.awaiting) {
+        var pick = document.createElement("div");
+        pick.className = "pick";
+        var pt = document.createElement("div");
+        pt.className = "picktitle";
+        pt.textContent = "이 부분을 어떻게 해줄까요?";
+        pick.appendChild(pt);
+
+        var prow = document.createElement("div");
+        prow.className = "pickrow";
+        ASK_MODES.forEach(function (m) {
+          var b = document.createElement("button");
+          b.textContent = m.label;
+          if (m.id === "core") b.className = "primary";
+          b.onclick = function () { runCard(card, m); };
+          prow.appendChild(b);
+        });
+        pick.appendChild(prow);
+
+        var pf = document.createElement("div");
+        pf.className = "pickfree";
+        var pin2 = document.createElement("input");
+        pin2.type = "text";
+        pin2.placeholder = "직접 물어보기";
+        pin2.maxLength = 300;
+        var pgo = document.createElement("button");
+        pgo.textContent = "묻기";
+        pgo.onclick = function () {
+          var v = pin2.value.trim();
+          if (v) runCard(card, null, v);
+        };
+        pin2.addEventListener("keydown", function (e) {
+          if (e.key === "Enter") { e.preventDefault(); pgo.click(); }
+          e.stopPropagation();          // 좌우 화살표가 페이지를 넘기지 않게
+        });
+        pf.appendChild(pin2); pf.appendChild(pgo);
+        pick.appendChild(pf);
+
+        body.appendChild(pick);
+        el.appendChild(body);
+        box.appendChild(el);
+        return;
+      }
 
       if (card.editing) {
         var edit = document.createElement("div");
@@ -1290,7 +1522,7 @@
           if (detIn) card.detail = detIn.value;
           card.editing = false;
           renderCards();
-          drawPins();
+          drawMemos();
           saveCard(card);
         };
         var cancel = document.createElement("button");
@@ -1329,6 +1561,29 @@
         body.appendChild(det);
       }
 
+      // 답에 나온 쪽 번호로 바로 갈 수 있게 한다
+      if (card.qna && !card.pending && card.summary) {
+        var pages = [];
+        String(card.summary).replace(/(\d{1,4})\s*쪽/g, function (_, n) {
+          n = parseInt(n, 10);
+          if (n >= 1 && n <= state.pages && pages.indexOf(n) < 0) pages.push(n);
+          return _;
+        });
+        if (pages.length) {
+          var jr = document.createElement("div");
+          jr.className = "jump";
+          pages.slice(0, 8).forEach(function (n) {
+            var jb = document.createElement("button");
+            jb.textContent = n + "쪽으로";
+            jb.onclick = function () {
+              state.page = n; closeMemoEdit(); renderPage();
+            };
+            jr.appendChild(jb);
+          });
+          body.appendChild(jr);
+        }
+      }
+
       if (!card.pending && !card.failed && !card.qna) {
         if (!card.detail) {
           var more = document.createElement("div");
@@ -1354,9 +1609,10 @@
           var yes = document.createElement("button");
           yes.className = "primary";
           yes.textContent = "예";
-          yes.onclick = function () {
+          yes.onclick = async function () {
             card.inserted = true;
-            renderCards(); drawPins(); saveCard(card);
+            await placeMemoFor(card);       // 붙이는 순간 자리를 정해 화면과 PDF를 맞춘다
+            renderCards(); drawMemos(); saveCard(card);
           };
           var no = document.createElement("button");
           no.textContent = "아니요";
@@ -1394,143 +1650,371 @@
     box.scrollTop = box.scrollHeight;
   }
 
-  /* ---------- 페이지 위 메모 핀 ---------- */
+  /* ---------- 페이지 위 메모 ---------- */
 
-  function closePin() {
-    var n = document.querySelector(".pinnote");
-    if (n) n.remove();
-    state.openPin = null;
+  /*
+   * 메모 치수는 PDF 포인트로 한 번만 정한다.
+   * 화면은 이 값을 배율만 맞춰 그리므로 화면과 내보낸 PDF가 같아진다.
+   * 8.5pt로 줄인 건, 예전 13pt 상자가 슬라이드 위에서 원문을 가릴 만큼 컸기 때문이다.
+   */
+  var MEMO = { w: 190, fs: 8.5, lh: 11.6, pad: 6, bar: 3 };
+
+  function ptPx() {                       // 화면에서 1pt가 몇 px인가
+    if (!state.viewport || !state.pageW) return 1;
+    return (state.viewport.width / state.dpr) / state.pageW;
   }
 
-  function drawPins() {
-    if (!state.layer) return;
-    Array.prototype.forEach.call(state.layer.querySelectorAll(".pin"), function (p) { p.remove(); });
-    closePin();
+  /*
+   * 줄바꿈을 한 곳에서만 계산해 화면과 PDF가 같은 줄을 쓰게 한다.
+   * 각자 접으면 폰트 계산이 미묘하게 달라져 줄 수가 어긋난다.
+   */
+  var _measure = null;
+  function memoLines(text) {
+    if (!_measure) _measure = document.createElement("canvas").getContext("2d");
+    _measure.font = MEMO.fs + "px sans-serif";
+    var max = MEMO.w - MEMO.pad * 2 - MEMO.bar;
+    var lines = [], cur = "";
+    String(text == null ? "" : text).split("").forEach(function (ch) {
+      if (ch === "\n") { lines.push(cur); cur = ""; return; }
+      if (_measure.measureText(cur + ch).width > max) { lines.push(cur); cur = ch; }
+      else cur += ch;
+    });
+    if (cur || !lines.length) lines.push(cur);
+    return lines;
+  }
 
+  function memoSize(lines) {
+    return { w: MEMO.w, h: MEMO.pad * 2 + lines.length * MEMO.lh };
+  }
+
+  function closeMemoEdit() {
+    state.cards.forEach(function (c) { c.editingMemo = false; });
+  }
+
+  // 자리를 아직 못 정한 옛 카드를 위한 최소한의 자리
+  function fallbackPin(card, size) {
+    var pw = state.pageW || 1, ph = state.pageH || 1;
+    var x = card.rect.x + card.rect.w + 6 / pw;
+    if (x + size.w / pw > 1) x = Math.max(0, 1 - size.w / pw);
+    return { x: x, y: Math.max(0, Math.min(card.rect.y, 1 - size.h / ph)) };
+  }
+
+  function drawMemos() {
+    if (!state.layer || !state.viewport) return;
+    Array.prototype.forEach.call(state.layer.querySelectorAll(".memo"), function (m) { m.remove(); });
+
+    var k = ptPx();
     var W = state.viewport.width / state.dpr;
     var H = state.viewport.height / state.dpr;
 
     state.cards.forEach(function (card) {
       if (!card.inserted || card.page !== state.page) return;
-      var pin = document.createElement("div");
-      pin.className = "pin" + (card.manual ? " manual" : "");
-      pin.textContent = card.manual ? "쓴" : "메";
-      pin.title = card.memo || "빈 메모";
 
-      // 손으로 옮긴 자리가 있으면 그걸 쓰고, 없으면 오려낸 영역 오른쪽에 붙인다
-      var left, top;
-      if (card.pin) {
-        left = card.pin.x * W;
-        top = card.pin.y * H;
-      } else {
-        left = (card.rect.x + card.rect.w) * W + (card.manual ? 0 : 6);
-        if (left > W - 26) left = W - 26;
-        top = card.rect.y * H;
-      }
-      pin.style.left = left + "px";
-      pin.style.top = top + "px";
+      var lines = memoLines(card.memo || "");
+      var size = memoSize(lines);
+      if (!card.pin) card.pin = fallbackPin(card, size);
 
-      /*
-       * 핀 끌어 옮기기
-       *
-       * 옮겨도 card.rect(오려낸 영역)는 건드리지 않고 card.pin에 따로 적는다.
-       * rect를 움직이면 내보낸 PDF의 강조 네모와 카드 썸네일의 기준까지 틀어진다.
-       *
-       * 클릭과 드래그를 나누는 기준은 "움직였는가"다. 손이 조금 떨려도
-       * 열림이 막히지 않도록 3px까지는 클릭으로 친다.
-       */
-      var drag = null;
-      pin.addEventListener("pointerdown", function (e) {
-        e.stopPropagation();        // 레이어의 영역 선택이 시작되지 않게
-        pin.setPointerCapture(e.pointerId);
-        var r = state.layer.getBoundingClientRect();
-        drag = {
-          dx: e.clientX - r.left - parseFloat(pin.style.left),
-          dy: e.clientY - r.top - parseFloat(pin.style.top),
-          moved: false
+      var el = document.createElement("div");
+      el.className = "memo" + (card.manual ? " manual" : "") + (card.editingMemo ? " editing" : "");
+      el.style.left = (card.pin.x * W) + "px";
+      el.style.top = (card.pin.y * H) + "px";
+      el.style.width = (size.w * k) + "px";
+      el.style.height = (size.h * k) + "px";
+      el.style.padding = (MEMO.pad * k) + "px";
+      el.style.borderLeftWidth = (MEMO.bar * k) + "px";
+      el.style.fontSize = (MEMO.fs * k) + "px";
+      el.style.lineHeight = (MEMO.lh * k) + "px";
+      el.title = "끌어서 옮기고, 눌러서 고칩니다";
+
+      if (card.editingMemo) {
+        var ta = document.createElement("textarea");
+        ta.value = card.memo || "";
+        ta.setAttribute("aria-label", "메모 내용");
+        el.appendChild(ta);
+
+        var acts = document.createElement("div");
+        acts.className = "memoacts";
+        var ok = document.createElement("button");
+        ok.className = "primary";
+        ok.textContent = "저장";
+        ok.onclick = function () {
+          card.memo = ta.value;
+          card.editingMemo = false;
+          saveCard(card);
+          drawMemos();
+          renderCards();
         };
-        closePin();
+        var rm = document.createElement("button");
+        rm.textContent = card.manual ? "지우기" : "메모 빼기";
+        rm.onclick = function () {
+          if (card.manual) {
+            state.cards = state.cards.filter(function (c) { return c !== card; });
+            deleteCard(card);
+          } else {
+            card.inserted = false;
+            card.declined = true;
+            card.editingMemo = false;
+            saveCard(card);
+          }
+          drawMemos();
+          renderCards();
+        };
+        acts.appendChild(ok); acts.appendChild(rm);
+        acts.addEventListener("pointerdown", function (e) { e.stopPropagation(); });
+        el.appendChild(acts);
+
+        state.layer.appendChild(el);
+        ta.focus();
+        return;
+      }
+
+      lines.forEach(function (ln) {
+        var d = document.createElement("div");
+        d.className = "mline";
+        d.textContent = ln;
+        el.appendChild(d);
       });
 
-      pin.addEventListener("pointermove", function (e) {
+      /*
+       * 끌어 옮기기. 3px까지는 클릭으로 쳐서 손 떨림에 편집이 막히지 않게 한다.
+       * 옮긴 자리는 정규화해 card.pin에 적고 내보낼 때 그대로 쓴다.
+       */
+      var drag = null;
+      el.addEventListener("pointerdown", function (e) {
+        if (card.editingMemo) return;
+        e.stopPropagation();                 // 레이어의 영역 선택이 시작되지 않게
+        el.setPointerCapture(e.pointerId);
+        var r = state.layer.getBoundingClientRect();
+        drag = {
+          dx: e.clientX - r.left - parseFloat(el.style.left),
+          dy: e.clientY - r.top - parseFloat(el.style.top),
+          moved: false
+        };
+        el.style.cursor = "grabbing";
+      });
+
+      el.addEventListener("pointermove", function (e) {
         if (!drag) return;
         var r = state.layer.getBoundingClientRect();
         var x = e.clientX - r.left - drag.dx;
         var y = e.clientY - r.top - drag.dy;
-        if (Math.abs(x - parseFloat(pin.style.left)) > 3 ||
-            Math.abs(y - parseFloat(pin.style.top)) > 3) drag.moved = true;
-        // 페이지 밖으로 나가면 다시 잡을 수 없다
-        x = Math.max(0, Math.min(x, W - 26));
-        y = Math.max(0, Math.min(y, H - 26));
-        pin.style.left = x + "px";
-        pin.style.top = y + "px";
+        if (Math.abs(x - parseFloat(el.style.left)) > 3 ||
+            Math.abs(y - parseFloat(el.style.top)) > 3) drag.moved = true;
+        x = Math.max(0, Math.min(x, W - size.w * k));
+        y = Math.max(0, Math.min(y, H - size.h * k));
+        el.style.left = x + "px";
+        el.style.top = y + "px";
       });
 
-      pin.addEventListener("pointerup", function () {
+      el.addEventListener("pointerup", function () {
         if (!drag) return;
-        var wasMoved = drag.moved;
+        var moved = drag.moved;
         drag = null;
-        if (!wasMoved) { openPin(card, pin); return; }
-        card.pin = { x: parseFloat(pin.style.left) / W, y: parseFloat(pin.style.top) / H };
+        el.style.cursor = "grab";
+        if (!moved) {
+          closeMemoEdit();
+          card.editingMemo = true;
+          drawMemos();
+          return;
+        }
+        card.pin = { x: parseFloat(el.style.left) / W, y: parseFloat(el.style.top) / H };
         saveCard(card);
       });
 
-      pin.addEventListener("pointercancel", function () { drag = null; });
-
-      state.layer.appendChild(pin);
+      el.addEventListener("pointercancel", function () { drag = null; });
+      state.layer.appendChild(el);
     });
   }
 
-  function openPin(card, pin) {
-    if (state.openPin === card) { closePin(); return; }
-    closePin();
-    state.openPin = card;
+  /*
+   * 메모를 붙이는 순간 자리를 정한다.
+   * 예전에는 내보낼 때 잡아서 화면에서 본 위치와 결과가 달랐다.
+   */
+  /* ---------- 내보낸 PDF를 다시 열기 위한 표시 ---------- */
 
-    var W = state.viewport.width / state.dpr;
-    var note = document.createElement("div");
-    note.className = "pinnote";
-    var left = parseFloat(pin.style.left) + 26;
-    if (left + 190 > W) left = Math.max(4, parseFloat(pin.style.left) - 196);
-    note.style.left = left + "px";
-    note.style.top = pin.style.top;
+  var CAPNOTE_KEY = "Capnote";
 
-    var ta = document.createElement("textarea");
-    ta.value = card.memo;
-    ta.rows = 3;
-    ta.setAttribute("aria-label", "메모 내용");
-    note.appendChild(ta);
+  function addMemoAnnot(doc, page, pngRef, x, y, w, h, text) {
+    var ap = doc.context.stream("q " + w + " 0 0 " + h + " 0 0 cm /Img Do Q", {
+      Type: "XObject", Subtype: "Form", FormType: 1,
+      BBox: [0, 0, w, h],
+      Resources: { XObject: { Img: pngRef } }
+    });
+    var annot = doc.context.obj({
+      Type: "Annot", Subtype: "Stamp",
+      Rect: [x, y, x + w, y + h],
+      F: 4,                                    // 인쇄에도 나오게
+      AP: { N: doc.context.register(ap) },
+      T: PDFLib.PDFString.of("오려둔 공책"),
+      Contents: PDFLib.PDFString.of(String(text).slice(0, 300)),
+      Capnote: PDFLib.PDFBool.True             // 다음에 찾아 지우기 위한 표시
+    });
+    page.node.addAnnot(doc.context.register(annot));
+  }
 
-    var btns = document.createElement("div");
-    btns.className = "pinbtns";
-    var save = document.createElement("button");
-    save.textContent = "저장";
-    save.onclick = function () {
-      card.memo = ta.value;
-      saveCard(card);
-      closePin();
-      drawPins();
-    };
-    var rm = document.createElement("button");
-    rm.textContent = card.manual ? "지우기" : "메모 빼기";
-    rm.onclick = function () {
-      if (card.manual) {
-        state.cards = state.cards.filter(function (c) { return c !== card; });
-        deleteCard(card);
-      } else {
-        card.inserted = false;
-        card.declined = true;
-        saveCard(card);
+  function removeMemoAnnots(doc, page) {
+    var a = page.node.Annots();
+    if (!a) return 0;
+    var n = 0;
+    for (var i = a.size() - 1; i >= 0; i--) {
+      var d = doc.context.lookup(a.get(i));
+      if (d && d.get && d.get(PDFLib.PDFName.of(CAPNOTE_KEY))) { a.remove(i); n++; }
+    }
+    return n;
+  }
+
+  function saveCardsIntoPdf(doc, cards) {
+    try {
+      var slim = cards.map(function (c) {
+        var o = {};
+        Object.keys(c).forEach(function (k) {
+          if (k === "img" || k === "editing" || k === "editingMemo") return;   // 썸네일은 다시 만들 수 있다
+          o[k] = c[k];
+        });
+        return o;
+      });
+      var info = doc.context.lookup(doc.context.trailerInfo.Info);
+      info.set(PDFLib.PDFName.of(CAPNOTE_KEY),
+               PDFLib.PDFHexString.fromText(JSON.stringify({ v: 1, name: state.docName, cards: slim })));
+    } catch (e) { /* 못 심어도 PDF 자체는 나가야 한다 */ }
+  }
+
+  async function readCardsFromPdf(pdf) {
+    try {
+      var md = await pdf.getMetadata();
+      var raw = md && md.info && md.info.Custom ? md.info.Custom[CAPNOTE_KEY] : null;
+      if (!raw) return null;
+      var d = JSON.parse(raw);
+      return d && Array.isArray(d.cards) ? d.cards : null;
+    } catch (e) { return null; }
+  }
+
+  /*
+   * 우리가 넣은 메모 주석을 벗겨낸다.
+   *
+   * 벗기지 않으면 화면에 주석이 그려진 채로 그 위에 우리 메모 상자가 또 얹혀
+   * 두 겹으로 보인다. 벗겨내면 원본을 여는 것과 같아지고, 다시 내보낼 때도
+   * 깨끗한 바탕에서 시작한다.
+   */
+  async function stripMemoAnnots(bytes) {
+    try {
+      var doc = await PDFLib.PDFDocument.load(bytes.slice(0));
+      var n = 0;
+      doc.getPages().forEach(function (pg) { n += removeMemoAnnots(doc, pg); });
+      if (!n) return null;
+      return (await doc.save()).buffer;
+    } catch (e) { return null; }
+  }
+
+  var MEMO_GAP = 6, MEMO_MARGIN = 4;
+
+  function overlapArea(a, b) {
+    var dx = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
+    var dy = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+    return dx > 0 && dy > 0 ? dx * dy : 0;
+  }
+
+  /*
+   * 본문 글자 상자를 PDF 좌표(왼쪽 아래 원점, 포인트)로 모은다.
+   * 메모를 붙일 때마다 다시 읽으면 느려서 쪽마다 한 번만 읽고 쟁여 둔다.
+   */
+  var _textCache = {};
+  async function textBoxes(pageNo) {
+    if (_textCache[pageNo]) return _textCache[pageNo];
+    var out = [];
+    try {
+      var page = await state.pdf.getPage(pageNo);
+      var vp = page.getViewport({ scale: 1 });
+      var tc = await page.getTextContent();
+      tc.items.forEach(function (it) {
+        var t = pdfjsLib.Util.transform(vp.transform, it.transform);
+        var h = Math.hypot(t[2], t[3]) || 10;
+        if ((it.width || 0) > 0) out.push({ x: t[4], y: vp.height - t[5], w: it.width, h: h });
+      });
+    } catch (e) { /* 글자를 못 읽어도 배치는 계속돼야 한다 */ }
+    _textCache[pageNo] = out;
+    return out;
+  }
+
+  /*
+   * 빈자리 찾기 (좌표는 PDF 기준, 왼쪽 아래 원점)
+   *
+   * hard — 오려낸 영역과 이미 놓인 메모. 덮으면 안 된다 (가중치 100)
+   * soft — 본문 글자. 되도록 피한다 (가중치 1)
+   * 정 자리가 없으면 글자를 조금 가리더라도 오려낸 그림만은 지키게 된다.
+   */
+  function placeMemo(sel, mw, mh, pw, ph, hard, soft) {
+    var g = MEMO_GAP, m = MEMO_MARGIN, i;
+
+    function fit(x, y) {
+      return {
+        x: Math.max(m, Math.min(x, pw - mw - m)),
+        y: Math.max(m, Math.min(y, ph - mh - m)),
+        w: mw, h: mh
+      };
+    }
+    function score(c) {
+      var v = 0;
+      for (i = 0; i < hard.length; i++) v += overlapArea(c, hard[i]) * 100;
+      for (i = 0; i < soft.length; i++) v += overlapArea(c, soft[i]);
+      return v;
+    }
+
+    var spots = [
+      fit(sel.x + sel.w + g, sel.y + sel.h - mh),   // 오른쪽
+      fit(sel.x - g - mw,    sel.y + sel.h - mh),   // 왼쪽
+      fit(sel.x,             sel.y - g - mh),       // 아래
+      fit(sel.x,             sel.y + sel.h + g)     // 위
+    ];
+    var best = null, bestScore = Infinity;
+    for (var k = 0; k < spots.length; k++) {
+      var sc = score(spots[k]);
+      if (sc === 0) return spots[k];
+      if (sc < bestScore) { bestScore = sc; best = spots[k]; }
+    }
+
+    // 네 자리가 다 막혔으면 페이지를 훑어 가장 가까운 빈자리를 찾는다
+    var cx = sel.x + sel.w / 2, cy = sel.y + sel.h / 2;
+    var step = 12, nearD = Infinity, near = null;
+    for (var y = m; y <= ph - mh - m; y += step) {
+      for (var x = m; x <= pw - mw - m; x += step) {
+        var c = { x: x, y: y, w: mw, h: mh };
+        var v = score(c);
+        if (v < bestScore) { bestScore = v; best = c; }
+        if (v !== 0) continue;
+        var d = (x + mw / 2 - cx) * (x + mw / 2 - cx) + (y + mh / 2 - cy) * (y + mh / 2 - cy);
+        if (d < nearD) { nearD = d; near = c; }
       }
-      closePin();
-      drawPins();
-      renderCards();
-    };
-    btns.appendChild(save); btns.appendChild(rm);
-    note.appendChild(btns);
+    }
+    return near || best;
+  }
 
-    note.addEventListener("pointerdown", function (e) { e.stopPropagation(); });
-    state.layer.appendChild(note);
-    ta.focus();
+  async function placeMemoFor(card) {
+    var size = memoSize(memoLines(card.memo || ""));
+    var pw = state.pageW, ph = state.pageH;
+    if (!pw || !ph) { card.pin = fallbackPin(card, size); return; }
+
+    var sel = {
+      x: card.rect.x * pw, y: ph - (card.rect.y + card.rect.h) * ph,
+      w: card.rect.w * pw, h: card.rect.h * ph
+    };
+
+    var hard = [];
+    state.cards.forEach(function (c) {
+      if (c.page !== card.page || c === card) return;
+      if (c.inserted && c.pin) {                       // 이미 놓인 메모
+        var sz = memoSize(memoLines(c.memo || ""));
+        hard.push({ x: c.pin.x * pw, y: ph - c.pin.y * ph - sz.h, w: sz.w, h: sz.h });
+      }
+      if (!c.manual && !c.qna && c.rect && c.rect.w > 0) {   // 다른 오려낸 영역
+        hard.push({ x: c.rect.x * pw, y: ph - (c.rect.y + c.rect.h) * ph,
+                    w: c.rect.w * pw, h: c.rect.h * ph });
+      }
+    });
+
+    var soft = await textBoxes(card.page);
+    var at = placeMemo(sel, size.w, size.h, pw, ph, hard, soft);
+    card.pin = { x: at.x / pw, y: (ph - at.y - size.h) / ph };
   }
 
   /* ---------- 내보내기 ---------- */
@@ -1663,203 +2147,130 @@
   };
 
   // 한글은 표준 PDF 폰트에 없으므로, 메모를 캔버스에 그려 이미지로 심는다
-  function memoToPng(text) {
-    var pad = 8, w = 230, fs = 13, lh = 18;
-    var m = document.createElement("canvas").getContext("2d");
-    m.font = fs + "px sans-serif";
-    var words = String(text).split("");
-    var lines = [], cur = "";
-    words.forEach(function (ch) {
-      if (m.measureText(cur + ch).width > w - pad * 2 - 6) { lines.push(cur); cur = ch; }
-      else cur += ch;
-    });
-    if (cur) lines.push(cur);
-
-    var h = pad * 2 + lines.length * lh;
+  /*
+   * 메모를 PNG로 그린다. 한글이 pdf-lib 표준 폰트에 없어서 이미지로 심는다.
+   * 치수와 줄바꿈은 화면과 같은 값(MEMO, memoLines)을 쓴다 — 그래야 화면에서
+   * 맞춰 둔 자리와 크기가 그대로 나간다.
+   */
+  function memoToPng(text, manual) {
+    var lines = memoLines(text);
+    var size = memoSize(lines);
+    var s = 3;                       // 인쇄해도 뭉개지지 않게 3배로 그린다
     var cv = document.createElement("canvas");
-    var s = 2;
-    cv.width = w * s; cv.height = h * s;
+    cv.width = Math.round(size.w * s);
+    cv.height = Math.round(size.h * s);
     var c = cv.getContext("2d");
     c.scale(s, s);
+
     c.fillStyle = "#fff8dc";
-    c.fillRect(0, 0, w, h);
-    c.fillStyle = "#ffd83d";
-    c.fillRect(0, 0, 3, h);
+    c.fillRect(0, 0, size.w, size.h);
+    c.fillStyle = manual ? "#4aa3e0" : "#ffd83d";
+    c.fillRect(0, 0, MEMO.bar, size.h);
+
     c.fillStyle = "#241d00";
-    c.font = fs + "px sans-serif";
-    c.textBaseline = "top";
-    lines.forEach(function (ln, i) { c.fillText(ln, pad, pad + i * lh); });
-    return { dataUrl: cv.toDataURL("image/png"), w: w, h: h };
-  }
-
-  /*
-   * 메모를 놓을 자리 고르기
-   *
-   * 예전에는 오려낸 영역 오른쪽에 붙이고, 폭이 모자라면 페이지 오른쪽 끝으로 밀었다.
-   * 그런데 강의 슬라이드는 폭을 거의 다 쓰기 때문에 그 "밀기"가 곧바로 본문을 덮었다.
-   * 오려낸 그림 위에 메모가 얹히면 무엇을 오렸는지 안 보여서 앞뒤가 바뀐다.
-   *
-   * 피할 것을 두 등급으로 나눈다.
-   *   hard — 오려낸 영역과 이미 놓은 메모. 이건 덮으면 안 된다
-   *   soft — 본문 글자. 되도록 피하되, 빽빽한 슬라이드에서는 어쩔 수 없을 수 있다
-   * 가중치를 다르게 줘서, 정 자리가 없으면 글자를 조금 가리더라도
-   * 오려낸 그림만은 지키는 쪽으로 고른다.
-   */
-  var MEMO_GAP = 6, MEMO_MARGIN = 4;
-
-  function overlapArea(a, b) {
-    var dx = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
-    var dy = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
-    return dx > 0 && dy > 0 ? dx * dy : 0;
-  }
-
-  /*
-   * 본문 글자 상자들을 PDF 좌표(왼쪽 아래 원점, 포인트 단위)로 모은다.
-   * 내보내기는 pdf-lib가 하지만 글자 위치는 이미 열려 있는 pdf.js 쪽이 알고 있다.
-   */
-  async function textBoxes(pageNo) {
-    try {
-      var page = await state.pdf.getPage(pageNo);
-      var vp = page.getViewport({ scale: 1 });        // 뷰포트 배율 1 = PDF 포인트
-      var tc = await page.getTextContent();
-      var out = [];
-      tc.items.forEach(function (it) {
-        var t = pdfjsLib.Util.transform(vp.transform, it.transform);
-        var h = Math.hypot(t[2], t[3]) || 10;
-        var w = it.width || 0;
-        if (w > 0) out.push({ x: t[4], y: vp.height - t[5], w: w, h: h });
-      });
-      return out;
-    } catch (e) {
-      return [];        // 글자를 못 읽어도 배치는 계속돼야 한다
-    }
-  }
-
-  // 좌표는 PDF 기준(왼쪽 아래가 원점)이다
-  function placeMemo(sel, mw, mh, pw, ph, hard, soft) {
-    var g = MEMO_GAP, m = MEMO_MARGIN, i;
-
-    function fit(x, y) {
-      return {
-        x: Math.max(m, Math.min(x, pw - mw - m)),
-        y: Math.max(m, Math.min(y, ph - mh - m)),
-        w: mw, h: mh
-      };
-    }
-
-    function score(c) {
-      var v = 0;
-      for (i = 0; i < hard.length; i++) v += overlapArea(c, hard[i]) * 100;
-      for (i = 0; i < soft.length; i++) v += overlapArea(c, soft[i]);
-      return v;
-    }
-
-    // 먼저 오려낸 영역 바로 옆의 보기 좋은 자리부터 본다
-    var spots = [
-      fit(sel.x + sel.w + g, sel.y + sel.h - mh),   // 오른쪽 (위 맞춤)
-      fit(sel.x - g - mw,    sel.y + sel.h - mh),   // 왼쪽
-      fit(sel.x,             sel.y - g - mh),       // 아래
-      fit(sel.x,             sel.y + sel.h + g)     // 위
-    ];
-    var best = null, bestScore = Infinity;
-    for (var k = 0; k < spots.length; k++) {
-      var sc = score(spots[k]);
-      if (sc === 0) return spots[k];
-      if (sc < bestScore) { bestScore = sc; best = spots[k]; }
-    }
-
-    /*
-     * 네 자리가 다 막혔으면 페이지를 훑어 가장 가까운 빈자리를 찾는다.
-     * 강의 슬라이드는 여백이 넉넉한 편이라 보통 여기서 걸린다.
-     */
-    var cx = sel.x + sel.w / 2, cy = sel.y + sel.h / 2;
-    var step = 12, nearD = Infinity, near = null;
-    for (var y = m; y <= ph - mh - m; y += step) {
-      for (var x = m; x <= pw - mw - m; x += step) {
-        var c = { x: x, y: y, w: mw, h: mh };
-        var v = score(c);
-        if (v < bestScore) { bestScore = v; best = c; }
-        if (v !== 0) continue;
-        var d = (x + mw / 2 - cx) * (x + mw / 2 - cx) + (y + mh / 2 - cy) * (y + mh / 2 - cy);
-        if (d < nearD) { nearD = d; near = c; }
-      }
-    }
-    return near || best;   // 정말 빈자리가 없으면 가장 덜 가리는 자리
+    c.font = MEMO.fs + "px sans-serif";
+    c.textBaseline = "middle";
+    lines.forEach(function (ln, i) {
+      c.fillText(ln, MEMO.bar + MEMO.pad, MEMO.pad + i * MEMO.lh + MEMO.lh / 2);
+    });
+    return { dataUrl: cv.toDataURL("image/png"), w: size.w, h: size.h };
   }
 
   $("expPdf").onclick = async function () {
     var inserted = state.cards.filter(function (c) { return c.inserted; });
     if (!inserted.length) { setStatus("PDF에 붙인 메모가 아직 없습니다."); return; }
+
+    /*
+     * 쪽이 많은 자료를 매번 통째로 내려받는 건 부담이다.
+     * 기본은 "메모 있는 쪽만" — 보통 그것만 다시 볼 것이기 때문이다.
+     */
+    var scope = $("expScope").value;
+    if (scope === "page" && !inserted.some(function (c) { return c.page === state.page; })) {
+      setStatus("이 쪽에는 붙인 메모가 없습니다.");
+      return;
+    }
     setStatus("메모를 넣는 중…");
     try {
       var doc = await PDFLib.PDFDocument.load(state.bytes.slice(0));
 
-      // 쪽마다 "이미 찬 자리"를 들고 다닌다. 메모끼리 겹치는 것도 막아야 하기 때문이다
-      var takenByPage = {};
-      var textByPage = {};      // 본문 글자 상자는 쪽마다 한 번만 읽는다
-
-      // 오려낸 영역은 전부 미리 피할 대상으로 잡는다.
-      // 2번 메모가 1번이 오려낸 그림을 덮으면 안 된다
-      var selByPage = {};
-      inserted.forEach(function (c) {
-        var pg0 = doc.getPage(c.page - 1);
-        var w0 = pg0.getWidth(), h0 = pg0.getHeight();
-        (selByPage[c.page] = selByPage[c.page] || []).push({
-          x: c.rect.x * w0,
-          y: h0 - (c.rect.y + c.rect.h) * h0,
-          w: c.rect.w * w0,
-          h: c.rect.h * h0
-        });
-      });
+      /*
+       * 메모를 페이지에 굽지 않고 주석(Stamp)으로 넣는다.
+       *
+       * 구우면 지울 수 없어서, 내보낸 PDF를 다시 열어 고친 뒤 또 내보내면
+       * 예전 메모 위에 새 메모가 겹쳤다. 주석은 /Capnote 표시를 달아 두면
+       * 다음 번에 찾아서 지우고 새로 넣을 수 있다.
+       * F:4는 인쇄 플래그다 — 없으면 화면에만 보이고 인쇄에서 빠진다.
+       */
+      inserted.forEach(function (c) { removeMemoAnnots(doc, doc.getPage(c.page - 1)); });
+      state.cards.forEach(function (c) { removeMemoAnnots(doc, doc.getPage(c.page - 1)); });
 
       for (var i = 0; i < inserted.length; i++) {
         var card = inserted[i];
         var pg = doc.getPage(card.page - 1);
         var pw = pg.getWidth(), ph = pg.getHeight();
 
-        var sel = {
-          x: card.rect.x * pw,
-          y: ph - (card.rect.y + card.rect.h) * ph,
-          w: card.rect.w * pw,
-          h: card.rect.h * ph
-        };
-
-        pg.drawRectangle({
-          x: sel.x, y: sel.y, width: sel.w, height: sel.h,
-          borderColor: PDFLib.rgb(1, 0.85, 0.24),
-          borderWidth: 1.5,
-          opacity: 0
-        });
-
-        var memo = memoToPng(card.memo || card.summary);
-        var png = await doc.embedPng(memo.dataUrl);
-
-        var taken = takenByPage[card.page] = takenByPage[card.page] || [];
-        if (!(card.page in textByPage)) textByPage[card.page] = await textBoxes(card.page);
-
-        var at;
-        if (card.pin) {
-          /*
-           * 손으로 옮긴 자리가 있으면 자동 배치보다 그쪽을 따른다.
-           * 일부러 옮겼는데 내보낼 때 딴 데로 가면 그게 더 당황스럽다.
-           * 페이지 밖으로만 안 나가게 잡아준다.
-           */
-          var m = MEMO_MARGIN;
-          at = {
-            x: Math.max(m, Math.min(card.pin.x * pw, pw - memo.w - m)),
-            y: Math.max(m, Math.min(ph - card.pin.y * ph - memo.h, ph - memo.h - m))
-          };
-        } else {
-          var hard = (selByPage[card.page] || []).concat(taken);
-          at = placeMemo(sel, memo.w, memo.h, pw, ph, hard, textByPage[card.page]);
+        if (!card.manual && card.rect && card.rect.w > 0) {
+          pg.drawRectangle({
+            x: card.rect.x * pw,
+            y: ph - (card.rect.y + card.rect.h) * ph,
+            width: card.rect.w * pw,
+            height: card.rect.h * ph,
+            borderColor: PDFLib.rgb(1, 0.85, 0.24),
+            borderWidth: 1.5,
+            opacity: 0
+          });
         }
 
-        pg.drawImage(png, { x: at.x, y: at.y, width: memo.w, height: memo.h });
-        taken.push({ x: at.x, y: at.y, w: memo.w, h: memo.h });
+        var memo = memoToPng(card.memo || card.summary, card.manual);
+        var png = await doc.embedPng(memo.dataUrl);
+
+        // 자리는 화면에서 이미 정해졌다(card.pin). 여기서 다시 계산하지 않는다
+        var m = MEMO_MARGIN;
+        var pin = card.pin || fallbackPin(card, memo);
+        var x = Math.max(m, Math.min(pin.x * pw, pw - memo.w - m));
+        var y = Math.max(m, Math.min(ph - pin.y * ph - memo.h, ph - memo.h - m));
+        addMemoAnnot(doc, pg, png.ref, x, y, memo.w, memo.h, card.memo || "");
       }
+
+      /*
+       * 카드 정보를 PDF 안에 적어 둔다. 이걸 다시 우리 앱에서 열면 메모를
+       * 그대로 되살려 고칠 수 있다. 썸네일(img)은 빼서 파일을 가볍게 유지하고,
+       * 다시 열 때 쪽에서 새로 잘라 만든다.
+       */
+      /*
+       * 안 쓸 쪽을 덜어낸다. 뒤에서부터 지워야 앞 쪽 번호가 안 밀린다.
+       * 남은 쪽 기준으로 카드의 쪽 번호도 다시 매겨야, 이 파일을 다시 열었을 때
+       * 메모가 엉뚱한 쪽에 붙지 않는다.
+       */
+      var carriedCards = state.cards;
+      if (scope !== "all") {
+        var keep = {};
+        if (scope === "page") keep[state.page] = true;
+        else inserted.forEach(function (c) { keep[c.page] = true; });
+
+        for (var pi = doc.getPageCount() - 1; pi >= 0; pi--) {
+          if (!keep[pi + 1]) doc.removePage(pi);
+        }
+
+        var order = Object.keys(keep).map(Number).sort(function (a, b) { return a - b; });
+        var map = {};
+        order.forEach(function (pnum, idx) { map[pnum] = idx + 1; });
+        carriedCards = state.cards.filter(function (c) { return map[c.page]; })
+          .map(function (c) {
+            var o = {};
+            Object.keys(c).forEach(function (k) { o[k] = c[k]; });
+            o.page = map[c.page];
+            return o;
+          });
+      }
+
+      saveCardsIntoPdf(doc, carriedCards);
+
       var out = await doc.save();
       showExport("메모 넣은 PDF", {
-        note: "메모 " + inserted.length + "개를 넣었습니다. 아래 버튼으로 내려받아 굿노트 등에서 이어 쓰세요.",
+        note: "메모 " + carriedCards.filter(function (c) { return c.inserted; }).length +
+              "개 · " + doc.getPageCount() + "쪽입니다. " +
+              "내려받아 굿노트 등에서 이어 쓰세요. 이 파일을 다시 이 앱에 열면 메모를 그대로 고칠 수 있습니다.",
         blob: new Blob([out], { type: "application/pdf" }),
         filename: state.docName + " 메모.pdf"
       });
@@ -1873,7 +2284,7 @@
     if (!state.pdf) return;
     if (e.key === "ArrowLeft") $("prev").click();
     if (e.key === "ArrowRight") $("next").click();
-    if (e.key === "Escape") closePin();
+    if (e.key === "Escape") closeMemoEdit();
   });
 })();
 </script>
