@@ -505,6 +505,17 @@
     min-height: 31px;
   }
   .status.err { color: var(--danger); }
+  .status button {
+    margin-left: 8px;
+    font-size: 12px;
+    padding: 2px 9px;
+    border-radius: 5px;
+    color: var(--marker);
+    border-color: rgba(255, 216, 61, 0.5);
+  }
+  /* 뺀 메모를 다시 붙이는 자리 */
+  .reput { margin-top: 9px; }
+  .reput button { font-size: 12px; padding: 5px 11px; border-radius: 6px; }
 
   .veil {
     position: fixed;
@@ -594,6 +605,45 @@
   }
   .sheet .sfoot .spacer { flex: 1; }
 
+  /* 도구 고르기 — 오려내기 / 형광펜 */
+  .tool {
+    display: inline-flex;
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .tool button {
+    border: 0;
+    border-radius: 0;
+    font-size: 12.5px;
+    padding: 6px 10px;
+    color: var(--muted);
+    background: transparent;
+  }
+  .tool button.on { background: var(--marker); color: #1c1500; font-weight: 650; }
+
+  .pens { display: none; gap: 5px; align-items: center; }
+  .pens.on { display: inline-flex; }
+  .pens button {
+    width: 20px; height: 20px; padding: 0;
+    border-radius: 50%;
+    border: 2px solid transparent;
+  }
+  .pens button.on { border-color: var(--text); }
+
+  /*
+   * 형광펜 자국. 클래스 이름이 .mark면 앱 로고(.mark)와 부딪힌다.
+   * multiply를 쓰는 이유는 진짜 형광펜처럼 글자가 비쳐 보이게 하려는 것이다.
+   * 불투명하게 덮으면 정작 읽어야 할 글자가 가려진다.
+   */
+  .hlmark {
+    position: absolute;
+    mix-blend-mode: multiply;
+    border-radius: 2px;
+    cursor: pointer;
+  }
+  .hlmark:hover { outline: 1px solid rgba(0, 0, 0, 0.35); }
+
   .pageflip {
     position: sticky;
     top: 42vh;
@@ -640,6 +690,11 @@
     <span id="pageTotal">–</span>
   </span>
   <button id="next" disabled>→</button>
+  <span class="tool">
+    <button id="toolClip" class="on" disabled>오려내기</button>
+    <button id="toolHl" disabled>형광펜</button>
+  </span>
+  <span class="pens" id="pens"></span>
   <button id="zoomout" disabled>축소</button>
   <button id="zoomin" disabled>확대</button>
   <div class="spacer"></div>
@@ -830,11 +885,42 @@
     canvas: null,
     layer: null,
     cards: [],            // {id,page,img,memo,summary,detail,rect,inserted}
+    marks: [],            // 형광펜 자국 {id,page,color,rects:[정규화]}
+    tool: "clip",
+    hlColor: 0,
     openPin: null,
     renderTask: null
   };
 
+  /*
+   * 되돌리기
+   *
+   * 붙인 메모를 빼거나 카드를 지우면 되살릴 방법이 없었다. 특히 직접 쓴
+   * 메모는 지우는 순간 글까지 사라진다. 마지막 한 번은 되돌릴 수 있게 한다
+   * (상태줄의 되돌리기 버튼, 또는 Ctrl+Z).
+   */
+  var undoFn = null;
+
+  function offerUndo(msg, fn) {
+    undoFn = fn;
+    var el = $("status");
+    el.className = "status";
+    el.textContent = msg + " ";
+    var b = document.createElement("button");
+    b.textContent = "되돌리기";
+    b.onclick = doUndo;
+    el.appendChild(b);
+  }
+
+  function doUndo() {
+    if (!undoFn) { setStatus("되돌릴 것이 없습니다."); return; }
+    var f = undoFn;
+    undoFn = null;
+    f();
+  }
+
   function setStatus(msg, isErr) {
+    undoFn = null;
     var el = $("status");
     el.textContent = msg || "";
     el.className = "status" + (isErr ? " err" : "");
@@ -888,7 +974,161 @@
     }
     renderCards();
     drawMemos();
+    drawMarks();
   }
+
+  /* ---------- 형광펜 ---------- */
+
+  /*
+   * 글자에 붙는 형광펜
+   *
+   * 손이 그은 궤적을 그대로 칠하면 강의 중에는 삐뚤빼뚤해서 보기 나쁘다.
+   * 그은 영역 안에 있는 글자 줄만 찾아 그 줄에 딱 맞게 띠를 씌운다.
+   * 대충 그어도 결과가 반듯하다. 글자 정보가 없는 스캔 PDF에서는
+   * 그은 자리를 그대로 칠하는 쪽으로 물러난다.
+   */
+  var PENS = [
+    { id: "y", name: "노랑", css: "#ffe14d", rgb: [1, 0.882, 0.302] },
+    { id: "g", name: "초록", css: "#9fe6a0", rgb: [0.624, 0.902, 0.627] },
+    { id: "p", name: "분홍", css: "#ffb3c8", rgb: [1, 0.702, 0.784] }
+  ];
+
+  function marksKey() { return "capnote:" + state.docKey + ":marks"; }
+
+  async function saveMarks() {
+    if (!hasStorage() || !state.docKey) return;
+    try { await window.storage.set(marksKey(), JSON.stringify(state.marks)); } catch (e) {}
+  }
+
+  async function loadMarks() {
+    state.marks = [];
+    if (!hasStorage() || !state.docKey) return;
+    try {
+      var r = await window.storage.get(marksKey());
+      if (r) state.marks = JSON.parse(r.value) || [];
+    } catch (e) { state.marks = []; }
+  }
+
+  /*
+   * 그은 영역 안의 글자를 줄 단위로 묶는다.
+   * 같은 줄인지는 세로 중심이 글자 높이의 절반 안에 드는지로 본다.
+   */
+  async function bandsInRect(rect) {
+    var vp = state.viewport, d = state.dprUsed;
+    var tc = await textContentOf(state.page);
+    var items = [];
+    tc.items.forEach(function (it) {
+      var t = pdfjsLib.Util.transform(vp.transform, it.transform);
+      var h = Math.hypot(t[2], t[3]) / d;
+      var w = (it.width || 0) * state.scale;
+      var x = t[4] / d, base = t[5] / d;
+      if (!(w > 0 && h > 0)) return;
+      var top = base - h, cx = x + w / 2, cy = base - h / 2;
+      if (cx < rect.x || cx > rect.x + rect.w || cy < rect.y || cy > rect.y + rect.h) return;
+      items.push({ x: x, y: top, w: w, h: h, cy: cy });
+    });
+    if (!items.length) return null;
+
+    items.sort(function (a, b) { return a.cy - b.cy || a.x - b.x; });
+    var bands = [], cur = null;
+    items.forEach(function (it) {
+      if (cur && Math.abs(it.cy - cur.cy) <= Math.max(it.h, cur.h) * 0.5) {
+        cur.x0 = Math.min(cur.x0, it.x);
+        cur.x1 = Math.max(cur.x1, it.x + it.w);
+        cur.y0 = Math.min(cur.y0, it.y);
+        cur.y1 = Math.max(cur.y1, it.y + it.h);
+        cur.cy = (cur.cy + it.cy) / 2;
+        cur.h = Math.max(cur.h, it.h);
+      } else {
+        cur = { x0: it.x, x1: it.x + it.w, y0: it.y, y1: it.y + it.h, cy: it.cy, h: it.h };
+        bands.push(cur);
+      }
+    });
+
+    var pad = 1.5;
+    return bands.map(function (b) {
+      return { x: b.x0 - pad, y: b.y0 - pad, w: (b.x1 - b.x0) + pad * 2, h: (b.y1 - b.y0) + pad * 2 };
+    });
+  }
+
+  async function addMark(rect) {
+    var W = state.viewport.width / state.dprUsed;
+    var H = state.viewport.height / state.dprUsed;
+    var bands = await bandsInRect(rect);
+    if (!bands) bands = [rect];          // 글자를 못 찾으면 그은 자리를 그대로
+
+    var mark = {
+      id: "m" + Date.now(),
+      page: state.page,
+      color: PENS[state.hlColor].id,
+      rects: bands.map(function (b) {
+        return { x: b.x / W, y: b.y / H, w: b.w / W, h: b.h / H };
+      })
+    };
+    state.marks.push(mark);
+    saveMarks();
+    drawMarks();
+  }
+
+  function penOf(id) {
+    for (var i = 0; i < PENS.length; i++) if (PENS[i].id === id) return PENS[i];
+    return PENS[0];
+  }
+
+  function drawMarks() {
+    if (!state.layer || !state.viewport) return;
+    Array.prototype.forEach.call(state.layer.querySelectorAll(".hlmark"), function (m) { m.remove(); });
+    var W = state.viewport.width / state.dprUsed;
+    var H = state.viewport.height / state.dprUsed;
+
+    state.marks.forEach(function (mk) {
+      if (mk.page !== state.page) return;
+      mk.rects.forEach(function (r) {
+        var el = document.createElement("div");
+        el.className = "hlmark";
+        el.style.left = (r.x * W) + "px";
+        el.style.top = (r.y * H) + "px";
+        el.style.width = (r.w * W) + "px";
+        el.style.height = (r.h * H) + "px";
+        el.style.background = penOf(mk.color).css;
+        el.title = "누르면 지웁니다";
+        el.addEventListener("pointerdown", function (e) { e.stopPropagation(); });
+        el.onclick = function (e) {
+          e.stopPropagation();
+          state.marks = state.marks.filter(function (x) { return x !== mk; });
+          saveMarks();
+          drawMarks();
+          setStatus("형광펜 자국을 지웠습니다.");
+        };
+        state.layer.appendChild(el);
+      });
+    });
+  }
+
+  // 도구 · 색 고르기
+  function setTool(t) {
+    state.tool = t;
+    $("toolClip").classList.toggle("on", t === "clip");
+    $("toolHl").classList.toggle("on", t === "hl");
+    $("pens").classList.toggle("on", t === "hl");
+    if (state.layer) state.layer.style.cursor = t === "hl" ? "text" : "crosshair";
+  }
+  $("toolClip").onclick = function () { setTool("clip"); };
+  $("toolHl").onclick = function () { setTool("hl"); };
+
+  PENS.forEach(function (pen, i) {
+    var b = document.createElement("button");
+    b.style.background = pen.css;
+    b.title = pen.name;
+    b.className = i === 0 ? "on" : "";
+    b.onclick = function () {
+      state.hlColor = i;
+      Array.prototype.forEach.call($("pens").children, function (c, j) {
+        c.classList.toggle("on", j === i);
+      });
+    };
+    $("pens").appendChild(b);
+  });
 
   /* ---------- PDF 열기 ---------- */
 
@@ -939,11 +1179,15 @@
        * 사용자가 알 방법이 없어서 몇 개를 불러왔는지 알려 준다.
        */
       await loadCards();
+      await loadMarks();
       var restored = state.cards.length;
       if (carried && !state.cards.length) {
-        state.cards = carried;
+        state.cards = carried.cards;
         state.cards.forEach(function (c) { saveCard(c); });
-        setStatus("이 PDF에 들어 있던 메모 " + carried.length + "개를 불러왔습니다.");
+      }
+      if (carried && carried.marks.length && !state.marks.length) {
+        state.marks = carried.marks;
+        saveMarks();
       }
       await renderPage();
       setStatus(state.docName + " · " + state.pages + "쪽" +
@@ -1043,7 +1287,7 @@
 
     $("pageIn").value = state.page;
     $("pageTotal").textContent = state.pages;
-    ["prev", "next", "zoomin", "zoomout", "expMd", "expPdf", "q", "qsend", "qscope", "expScope"].forEach(function (id) {
+    ["prev", "next", "zoomin", "zoomout", "expMd", "expPdf", "q", "qsend", "qscope", "expScope", "toolClip", "toolHl"].forEach(function (id) {
       $(id).disabled = false;
     });
     $("prev").disabled = state.page <= 1;
@@ -1055,6 +1299,7 @@
     $("flipPrev").disabled = $("prev").disabled;
     $("flipNext").disabled = $("next").disabled;
 
+    drawMarks();
     drawMemos();
     refillThumbs();
   }
@@ -1243,7 +1488,12 @@
         w: Math.abs(x - start.x), h: Math.abs(y - start.y)
       };
       box.remove(); box = null; start = null;
-      if (rect.w > 14 && rect.h > 14) capture(rect);
+      if (state.tool === "hl") {
+        // 형광펜은 한 줄만 그어도 되므로 문턱을 낮춘다
+        if (rect.w > 6 && rect.h > 4) addMark(rect);
+      } else if (rect.w > 14 && rect.h > 14) {
+        capture(rect);
+      }
     }
 
     layer.addEventListener("pointerup", finish);
@@ -1674,10 +1924,18 @@
       var del = document.createElement("button");
       del.textContent = "지우기";
       del.onclick = function () {
+        var at = state.cards.indexOf(card);
         state.cards = state.cards.filter(function (c) { return c !== card; });
         deleteCard(card);
         renderCards();
         drawMemos();
+        offerUndo("카드를 지웠습니다.", function () {
+          card.editingMemo = false;
+          state.cards.splice(at, 0, card);
+          saveCard(card);
+          renderCards(); drawMemos();
+          setStatus("되돌렸습니다.");
+        });
       };
       acts.appendChild(del);
 
@@ -1852,7 +2110,25 @@
           done.className = "done";
           done.textContent = "PDF " + card.page + "쪽에 메모로 붙였습니다";
           body.appendChild(done);
-        } else if (!card.declined) {
+        } else if (card.declined) {
+          /*
+           * 예전에는 한 번 빼면 declined가 남아 다시 붙일 길이 없었다.
+           * 언제든 도로 붙일 수 있게 버튼을 남긴다.
+           */
+          var re = document.createElement("div");
+          re.className = "reput";
+          var rb = document.createElement("button");
+          rb.textContent = "PDF에 다시 붙이기";
+          rb.onclick = async function () {
+            card.inserted = true;
+            card.declined = false;
+            if (!card.pin) await placeMemoFor(card);
+            saveCard(card);
+            renderCards(); drawMemos();
+          };
+          re.appendChild(rb);
+          body.appendChild(re);
+        } else {
           var ask = document.createElement("div");
           ask.className = "ask";
           ask.textContent = "이 내용을 그 자리에 메모로 붙일까요? — “" + card.memo + "”";
@@ -2000,16 +2276,33 @@
         rm.textContent = card.manual ? "지우기" : "메모 빼기";
         rm.onclick = function () {
           if (card.manual) {
+            var at = state.cards.indexOf(card);
             state.cards = state.cards.filter(function (c) { return c !== card; });
             deleteCard(card);
+            drawMemos(); renderCards();
+            offerUndo("직접 쓴 메모를 지웠습니다.", function () {
+              card.editingMemo = false;      // 편집하다 지웠어도 되살릴 땐 평소 모습으로
+              state.cards.splice(at, 0, card);
+              saveCard(card);
+              drawMemos(); renderCards();
+              setStatus("되돌렸습니다.");
+            });
           } else {
+            var pin = card.pin;
             card.inserted = false;
             card.declined = true;
             card.editingMemo = false;
             saveCard(card);
+            drawMemos(); renderCards();
+            offerUndo("메모를 뺐습니다.", function () {
+              card.inserted = true;
+              card.declined = false;
+              card.pin = pin;
+              saveCard(card);
+              drawMemos(); renderCards();
+              setStatus("되돌렸습니다.");
+            });
           }
-          drawMemos();
-          renderCards();
         };
         acts.appendChild(ok); acts.appendChild(rm);
         acts.addEventListener("pointerdown", function (e) { e.stopPropagation(); });
@@ -2104,6 +2397,39 @@
     page.node.addAnnot(doc.context.register(annot));
   }
 
+  /*
+   * 형광펜은 PDF 표준 Highlight 주석으로 넣는다.
+   *
+   * 굿노트 같은 뷰어가 형광펜으로 알아보고, 진짜 형광펜처럼 글자가 비쳐 보인다.
+   * 그림으로 구우면 글자를 덮어 버린다. Multiply를 쓰는 모양(AP)도 같이 넣어
+   * 자체 렌더링을 안 하는 뷰어에서도 같게 보이게 한다.
+   * 메모와 같은 /Capnote 표시를 달아 다시 내보낼 때 지우고 새로 넣는다.
+   */
+  function addMarkAnnot(doc, page, r, rgb) {
+    var x = r.x, y = r.y, w = r.w, h = r.h;
+    var ap = doc.context.stream(
+      "/GS gs " + rgb[0] + " " + rgb[1] + " " + rgb[2] + " rg 0 0 " + w + " " + h + " re f",
+      {
+        Type: "XObject", Subtype: "Form", FormType: 1,
+        BBox: [0, 0, w, h],
+        Resources: { ExtGState: { GS: { Type: "ExtGState", BM: "Multiply", ca: 1 } } }
+      }
+    );
+    var annot = doc.context.obj({
+      Type: "Annot", Subtype: "Highlight",
+      Rect: [x, y, x + w, y + h],
+      // 왼위, 오른위, 왼아래, 오른아래 순서다
+      QuadPoints: [x, y + h, x + w, y + h, x, y, x + w, y],
+      C: rgb,
+      CA: 1,
+      F: 4,
+      AP: { N: doc.context.register(ap) },
+      T: PDFLib.PDFString.of("오려둔 공책"),
+      Capnote: PDFLib.PDFBool.True
+    });
+    page.node.addAnnot(doc.context.register(annot));
+  }
+
   function removeMemoAnnots(doc, page) {
     var a = page.node.Annots();
     if (!a) return 0;
@@ -2115,7 +2441,7 @@
     return n;
   }
 
-  function saveCardsIntoPdf(doc, cards) {
+  function saveCardsIntoPdf(doc, cards, carriedMarks) {
     try {
       var slim = cards.map(function (c) {
         var o = {};
@@ -2127,7 +2453,9 @@
       });
       var info = doc.context.lookup(doc.context.trailerInfo.Info);
       info.set(PDFLib.PDFName.of(CAPNOTE_KEY),
-               PDFLib.PDFHexString.fromText(JSON.stringify({ v: 1, name: state.docName, cards: slim })));
+               PDFLib.PDFHexString.fromText(JSON.stringify({
+                 v: 1, name: state.docName, cards: slim, marks: carriedMarks
+               })));
     } catch (e) { /* 못 심어도 PDF 자체는 나가야 한다 */ }
   }
 
@@ -2137,7 +2465,8 @@
       var raw = md && md.info && md.info.Custom ? md.info.Custom[CAPNOTE_KEY] : null;
       if (!raw) return null;
       var d = JSON.parse(raw);
-      return d && Array.isArray(d.cards) ? d.cards : null;
+      if (!d) return null;
+      return { cards: Array.isArray(d.cards) ? d.cards : [], marks: Array.isArray(d.marks) ? d.marks : [] };
     } catch (e) { return null; }
   }
 
@@ -2683,7 +3012,10 @@
 
   $("expPdf").onclick = async function () {
     var inserted = state.cards.filter(function (c) { return c.inserted; });
-    if (!inserted.length) { setStatus("PDF에 붙인 메모가 아직 없습니다."); return; }
+    if (!inserted.length && !state.marks.length) {
+      setStatus("PDF에 붙인 메모도 형광펜도 아직 없습니다.");
+      return;
+    }
 
     /*
      * 쪽이 많은 자료를 매번 통째로 내려받는 건 부담이다.
@@ -2696,7 +3028,35 @@
     }
     setStatus("메모를 넣는 중…");
     try {
-      var doc = await PDFLib.PDFDocument.load(state.bytes.slice(0));
+      /*
+       * 필요한 쪽만 새 문서로 옮겨 담는다.
+       *
+       * 예전에는 원본을 통째로 열고 removePage로 덜어냈는데, 그건 쪽 목록에서
+       * 빼기만 할 뿐 그 쪽의 그림·글꼴은 파일에 그대로 남는다. 그래서 "메모 있는
+       * 쪽만"으로 골라도 용량이 전체와 똑같았다.
+       * copyPages는 그 쪽이 실제로 쓰는 것만 따라오므로 파일이 진짜로 줄어든다.
+       */
+      var src = await PDFLib.PDFDocument.load(state.bytes.slice(0));
+      var doc = src, pageMap = null;
+
+      if (scope !== "all") {
+        var keep = {};
+        if (scope === "page") keep[state.page] = true;
+        else {
+          inserted.forEach(function (c) { keep[c.page] = true; });
+          state.marks.forEach(function (m) { keep[m.page] = true; });
+        }
+        var order = Object.keys(keep).map(Number).sort(function (a, b) { return a - b; });
+        pageMap = {};
+        order.forEach(function (pnum, idx) { pageMap[pnum] = idx + 1; });
+
+        doc = await PDFLib.PDFDocument.create();
+        var copied = await doc.copyPages(src, order.map(function (n) { return n - 1; }));
+        copied.forEach(function (pg) { doc.addPage(pg); });
+      }
+
+      // 원본 쪽 번호를 결과 문서의 쪽 번호로 옮긴다
+      function outPage(n) { return pageMap ? pageMap[n] : n; }
 
       /*
        * 메모를 페이지에 굽지 않고 주석(Stamp)으로 넣는다.
@@ -2706,25 +3066,34 @@
        * 다음 번에 찾아서 지우고 새로 넣을 수 있다.
        * F:4는 인쇄 플래그다 — 없으면 화면에만 보이고 인쇄에서 빠진다.
        */
-      inserted.forEach(function (c) { removeMemoAnnots(doc, doc.getPage(c.page - 1)); });
-      state.cards.forEach(function (c) { removeMemoAnnots(doc, doc.getPage(c.page - 1)); });
+      // 이전에 넣은 우리 주석(메모·형광펜)을 모두 걷어낸 뒤 새로 넣는다
+      doc.getPages().forEach(function (pg) { removeMemoAnnots(doc, pg); });
+
+      state.marks.forEach(function (mk) {
+        var op = outPage(mk.page);
+        if (!op || op < 1 || op > doc.getPageCount()) return;
+        var pg = doc.getPage(op - 1);
+        var pw = pg.getWidth(), ph = pg.getHeight();
+        var rgb = penOf(mk.color).rgb;
+        mk.rects.forEach(function (r) {
+          addMarkAnnot(doc, pg, {
+            x: r.x * pw, y: ph - (r.y + r.h) * ph, w: r.w * pw, h: r.h * ph
+          }, rgb);
+        });
+      });
 
       for (var i = 0; i < inserted.length; i++) {
         var card = inserted[i];
-        var pg = doc.getPage(card.page - 1);
+        var op = outPage(card.page);
+        if (!op) continue;
+        var pg = doc.getPage(op - 1);
         var pw = pg.getWidth(), ph = pg.getHeight();
 
-        if (!card.manual && card.rect && card.rect.w > 0) {
-          pg.drawRectangle({
-            x: card.rect.x * pw,
-            y: ph - (card.rect.y + card.rect.h) * ph,
-            width: card.rect.w * pw,
-            height: card.rect.h * ph,
-            borderColor: PDFLib.rgb(1, 0.85, 0.24),
-            borderWidth: 1.5,
-            opacity: 0
-          });
-        }
+        /*
+         * 오려낸 영역에 노란 테두리를 두르던 것을 뺐다.
+         * 어디를 오렸는지는 정리 PDF에 그림으로 남는다. 원본 위에서는
+         * 표시가 오히려 지저분했고, 강조는 형광펜이 맡는다.
+         */
 
         var memo = memoToPng(card.memo || card.summary, card.manual);
         var png = await doc.embedPng(memo.dataUrl);
@@ -2742,34 +3111,23 @@
        * 그대로 되살려 고칠 수 있다. 썸네일(img)은 빼서 파일을 가볍게 유지하고,
        * 다시 열 때 쪽에서 새로 잘라 만든다.
        */
-      /*
-       * 안 쓸 쪽을 덜어낸다. 뒤에서부터 지워야 앞 쪽 번호가 안 밀린다.
-       * 남은 쪽 기준으로 카드의 쪽 번호도 다시 매겨야, 이 파일을 다시 열었을 때
-       * 메모가 엉뚱한 쪽에 붙지 않는다.
-       */
+      // 이 파일을 다시 열었을 때를 위해 쪽 번호를 결과 기준으로 다시 매긴다
       var carriedCards = state.cards;
-      if (scope !== "all") {
-        var keep = {};
-        if (scope === "page") keep[state.page] = true;
-        else inserted.forEach(function (c) { keep[c.page] = true; });
-
-        for (var pi = doc.getPageCount() - 1; pi >= 0; pi--) {
-          if (!keep[pi + 1]) doc.removePage(pi);
-        }
-
-        var order = Object.keys(keep).map(Number).sort(function (a, b) { return a - b; });
-        var map = {};
-        order.forEach(function (pnum, idx) { map[pnum] = idx + 1; });
-        carriedCards = state.cards.filter(function (c) { return map[c.page]; })
+      if (pageMap) {
+        carriedCards = state.cards.filter(function (c) { return pageMap[c.page]; })
           .map(function (c) {
             var o = {};
             Object.keys(c).forEach(function (k) { o[k] = c[k]; });
-            o.page = map[c.page];
+            o.page = pageMap[c.page];
             return o;
           });
       }
 
-      saveCardsIntoPdf(doc, carriedCards);
+      var carriedMarks = pageMap
+        ? state.marks.filter(function (m) { return pageMap[m.page]; })
+            .map(function (m) { return { id: m.id, page: pageMap[m.page], color: m.color, rects: m.rects }; })
+        : state.marks;
+      saveCardsIntoPdf(doc, carriedCards, carriedMarks);
 
       var out = await doc.save();
       showExport("메모 넣은 PDF", {
@@ -2841,6 +3199,7 @@
     if (!(e.ctrlKey || e.metaKey)) return;
 
     // Ctrl+> / Ctrl+< 로 정리 패널 글자 크기
+    if (e.key === "z" || e.key === "Z") { e.preventDefault(); doUndo(); return; }
     if (e.key === ">" || e.key === "." ) { e.preventDefault(); bumpNoteFs(1); return; }
     if (e.key === "<" || e.key === ",") { e.preventDefault(); bumpNoteFs(-1); return; }
 
