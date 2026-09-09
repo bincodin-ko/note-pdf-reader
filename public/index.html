@@ -748,6 +748,10 @@
     <button id="toolHl" disabled>형광펜</button>
   </span>
   <span class="pens" id="pens"></span>
+  <span class="tool" title="PDF에 붙는 메모 글자 크기 (Ctrl+&lt; / Ctrl+&gt;)">
+    <button id="mfsDown" disabled>메모 가－</button>
+    <button id="mfsUp" disabled>메모 가＋</button>
+  </span>
   <button id="zoomout" disabled>축소</button>
   <button id="zoomin" disabled>확대</button>
   <div class="spacer"></div>
@@ -1401,7 +1405,7 @@
 
     $("pageIn").value = state.page;
     $("pageTotal").textContent = state.pages;
-    ["prev", "next", "zoomin", "zoomout", "expMd", "expPdf", "q", "qsend", "qscope", "expScope", "toolClip", "toolHl"].forEach(function (id) {
+    ["prev", "next", "zoomin", "zoomout", "expMd", "expPdf", "q", "qsend", "qscope", "expScope", "toolClip", "toolHl", "mfsUp", "mfsDown"].forEach(function (id) {
       $(id).disabled = false;
     });
     $("prev").disabled = state.page <= 1;
@@ -1409,6 +1413,7 @@
 
     // 양옆 버튼은 위 툴바 버튼과 같은 상태를 따른다
     ["flipPrev", "flipNext"].forEach(function (id) { $(id).classList.remove("gone"); });
+    applyMemoFs(MEMO.fs, true);            // 버튼 활성 상태만 맞춘다
     prefetchAround();
     $("flipPrev").disabled = $("prev").disabled;
     $("flipNext").disabled = $("next").disabled;
@@ -2311,6 +2316,35 @@
    * 8.5pt로 줄인 건, 예전 13pt 상자가 슬라이드 위에서 원문을 가릴 만큼 컸기 때문이다.
    */
   var MEMO = { w: 190, fs: 8.5, lh: 11.6, pad: 6, bar: 3 };
+
+  /*
+   * 메모 글자 크기는 사람마다 다르다. 슬라이드가 빽빽하면 작게, 큰 화면에
+   * 띄워 놓고 보면 크게 쓴다. 폭도 같이 늘려 한 줄에 들어가는 글자 수를
+   * 유지한다 — 폭을 두면 글자만 커져서 상자가 세로로만 길어진다.
+   * PDF마다 갈리는 값이 아니라 localStorage에 적는다.
+   */
+  var MEMO_FS_MIN = 6, MEMO_FS_MAX = 16, MEMO_FS_BASE = 8.5, MEMO_W_BASE = 190;
+
+  function applyMemoFs(v, quiet) {
+    var fs = Math.max(MEMO_FS_MIN, Math.min(MEMO_FS_MAX, Math.round(v * 2) / 2));
+    MEMO.fs = fs;
+    MEMO.lh = Math.round(fs * 1.365 * 10) / 10;
+    MEMO.w = Math.round(MEMO_W_BASE * fs / MEMO_FS_BASE);
+    try { localStorage.setItem("capnote:memofs", String(fs)); } catch (e) {}
+    if ($("mfsDown")) {
+      $("mfsDown").disabled = !state.pdf || fs <= MEMO_FS_MIN;
+      $("mfsUp").disabled = !state.pdf || fs >= MEMO_FS_MAX;
+    }
+    if (!quiet) {
+      drawMemos();
+      setStatus("메모 글자 " + fs + "pt");
+    }
+  }
+
+  (function () {
+    var v = parseFloat(localStorage.getItem("capnote:memofs"));
+    applyMemoFs(v >= MEMO_FS_MIN && v <= MEMO_FS_MAX ? v : MEMO_FS_BASE, true);
+  })();
 
   function ptPx() {                       // 화면에서 1pt가 몇 px인가
     if (!state.viewport || !state.pageW) return 1;
@@ -3429,6 +3463,10 @@
     applyNoteFs();
     setStatus("글자 크기 " + noteFs + "px");
   }
+  // PDF에 붙는 메모 글자 크기 (Ctrl+> / Ctrl+< 와 같은 동작)
+  $("mfsUp").onclick = function () { applyMemoFs(MEMO.fs + 0.5); };
+  $("mfsDown").onclick = function () { applyMemoFs(MEMO.fs - 0.5); };
+
   $("fsUp").onclick = function () { bumpNoteFs(1); };
   $("fsDown").onclick = function () { bumpNoteFs(-1); };
   applyNoteFs();
@@ -3458,10 +3496,15 @@
   document.addEventListener("keydown", function (e) {
     if (!(e.ctrlKey || e.metaKey)) return;
 
-    // Ctrl+> / Ctrl+< 로 정리 패널 글자 크기
     if (e.key === "z" || e.key === "Z") { e.preventDefault(); doUndo(); return; }
-    if (e.key === ">" || e.key === "." ) { e.preventDefault(); bumpNoteFs(1); return; }
-    if (e.key === "<" || e.key === ",") { e.preventDefault(); bumpNoteFs(-1); return; }
+
+    /*
+     * Ctrl+> / Ctrl+< 는 PDF에 붙는 메모 글자 크기다.
+     * 정리 패널 글자는 패널 머리의 가－/가＋ 버튼이 맡는다 — 둘 다 단축키에
+     * 걸어 두면 지금 무엇이 커지는지 헷갈린다.
+     */
+    if (e.key === ">" || e.key === "." ) { e.preventDefault(); applyMemoFs(MEMO.fs + 0.5); return; }
+    if (e.key === "<" || e.key === ",") { e.preventDefault(); applyMemoFs(MEMO.fs - 0.5); return; }
 
     // Ctrl +/- 도 화면 전체 대신 PDF만
     if (e.key === "+" || e.key === "=") { e.preventDefault(); zoomPdf(0.25); return; }
