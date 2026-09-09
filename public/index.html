@@ -636,13 +636,66 @@
    * multiply를 쓰는 이유는 진짜 형광펜처럼 글자가 비쳐 보이게 하려는 것이다.
    * 불투명하게 덮으면 정작 읽어야 할 글자가 가려진다.
    */
+  /*
+   * 범위 표시 테두리
+   *
+   * 오려낸 자리를 알려 주는 노란 네모다. AI에 보낸 그림 범위(card.rect)와는
+   * 따로 둔다 — 이건 눈으로 보기 좋게 글자에 맞추려고 만지는 것이라,
+   * 여기를 옮긴다고 이미 물어본 그림이 달라지면 안 된다.
+   */
+  .boxsel {
+    position: absolute;
+    border: 2px solid var(--marker);
+    border-radius: 2px;
+    background: transparent;
+    cursor: move;
+    z-index: 3;
+  }
+  .boxsel .bh {
+    position: absolute;
+    width: 11px;
+    height: 11px;
+    background: var(--marker);
+    border: 1px solid #6b5500;
+    border-radius: 2px;
+  }
+  .boxsel .bh.nw { left: -6px; top: -6px; cursor: nwse-resize; }
+  .boxsel .bh.ne { right: -6px; top: -6px; cursor: nesw-resize; }
+  .boxsel .bh.sw { left: -6px; bottom: -6px; cursor: nesw-resize; }
+  .boxsel .bh.se { right: -6px; bottom: -6px; cursor: nwse-resize; }
+  .boxsel .bdel {
+    position: absolute;
+    right: -1px;
+    top: -23px;
+    font-size: 11px;
+    padding: 2px 7px;
+    border-radius: 4px;
+  }
+
   .hlmark {
     position: absolute;
+    z-index: 2;              /* 테두리·메모보다 아래 */
     mix-blend-mode: multiply;
     border-radius: 2px;
     cursor: pointer;
   }
   .hlmark:hover { outline: 1px solid rgba(0, 0, 0, 0.35); }
+  /* 고른 자국은 테두리로 알린다. 지우기는 X 버튼이나 Delete 키로 한다 */
+  .hlmark.on { outline: 2px solid #333; }
+  .hldel {
+    position: absolute;
+    z-index: 6;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    line-height: 1;
+    font-size: 13px;
+    border-radius: 50%;
+    background: var(--ink);
+    color: var(--text);
+    border: 1px solid var(--rule);
+  }
+  .hldel:hover { border-color: var(--danger); color: var(--danger); }
 
   .pageflip {
     position: sticky;
@@ -886,6 +939,7 @@
     layer: null,
     cards: [],            // {id,page,img,memo,summary,detail,rect,inserted}
     marks: [],            // 형광펜 자국 {id,page,color,rects:[정규화]}
+    selMark: null,        // 고른 형광펜
     tool: "clip",
     hlColor: 0,
     openPin: null,
@@ -1084,33 +1138,71 @@
     return PENS[0];
   }
 
+  /*
+   * 형광펜 자국 그리기
+   *
+   * 예전에는 누르면 바로 지워졌다. 스치기만 해도 사라져서 위험했다.
+   * 이제 누르면 고르기만 하고, 지우려면 오른쪽 위 X를 누르거나 Delete를 친다.
+   */
   function drawMarks() {
     if (!state.layer || !state.viewport) return;
-    Array.prototype.forEach.call(state.layer.querySelectorAll(".hlmark"), function (m) { m.remove(); });
+    Array.prototype.forEach.call(state.layer.querySelectorAll(".hlmark, .hldel"),
+      function (m) { m.remove(); });
+
     var W = state.viewport.width / state.dprUsed;
     var H = state.viewport.height / state.dprUsed;
 
     state.marks.forEach(function (mk) {
       if (mk.page !== state.page) return;
+      var picked = state.selMark === mk.id;
+      var top = null, right = null;
+
       mk.rects.forEach(function (r) {
         var el = document.createElement("div");
-        el.className = "hlmark";
+        el.className = "hlmark" + (picked ? " on" : "");
         el.style.left = (r.x * W) + "px";
         el.style.top = (r.y * H) + "px";
         el.style.width = (r.w * W) + "px";
         el.style.height = (r.h * H) + "px";
         el.style.background = penOf(mk.color).css;
-        el.title = "누르면 지웁니다";
+        el.title = "누르면 골라집니다. 지우려면 X 또는 Delete";
         el.addEventListener("pointerdown", function (e) { e.stopPropagation(); });
         el.onclick = function (e) {
           e.stopPropagation();
-          state.marks = state.marks.filter(function (x) { return x !== mk; });
-          saveMarks();
+          state.selMark = picked ? null : mk.id;   // 다시 누르면 고르기 해제
           drawMarks();
-          setStatus("형광펜 자국을 지웠습니다.");
         };
         state.layer.appendChild(el);
+
+        if (top === null || r.y < top) top = r.y;
+        if (right === null || r.x + r.w > right) right = r.x + r.w;
       });
+
+      if (picked && top !== null) {
+        var x = document.createElement("button");
+        x.className = "hldel";
+        x.textContent = "×";
+        x.title = "이 형광펜 지우기";
+        x.style.left = Math.min(right * W - 6, W - 22) + "px";
+        x.style.top = Math.max(0, top * H - 22) + "px";
+        x.addEventListener("pointerdown", function (e) { e.stopPropagation(); });
+        x.onclick = function (e) { e.stopPropagation(); removeMark(mk); };
+        state.layer.appendChild(x);
+      }
+    });
+  }
+
+  function removeMark(mk) {
+    var at = state.marks.indexOf(mk);
+    state.marks = state.marks.filter(function (x) { return x !== mk; });
+    state.selMark = null;
+    saveMarks();
+    drawMarks();
+    offerUndo("형광펜을 지웠습니다.", function () {
+      state.marks.splice(at, 0, mk);
+      saveMarks();
+      drawMarks();
+      setStatus("되돌렸습니다.");
     });
   }
 
@@ -1481,7 +1573,8 @@
     var box = null, start = null;
 
     layer.addEventListener("pointerdown", function (e) {
-      if (e.target !== layer) return;      // 핀이나 메모를 누른 경우는 제외
+      if (e.target !== layer) return;
+      if (state.selMark) { state.selMark = null; drawMarks(); }      // 핀이나 메모를 누른 경우는 제외
       closeMemoEdit();
       layer.setPointerCapture(e.pointerId);
       var r = layer.getBoundingClientRect();
@@ -1733,6 +1826,9 @@
 
     if (!card.failed && $("auto").checked) {
       card.inserted = true;
+      if (!card.box && card.rect && card.rect.w > 0) {
+        card.box = { x: card.rect.x, y: card.rect.y, w: card.rect.w, h: card.rect.h };
+      }
       await placeMemoFor(card);
       renderCards(); drawMemos(); saveCard(card);
     }
@@ -2144,6 +2240,9 @@
           rb.onclick = async function () {
             card.inserted = true;
             card.declined = false;
+            if (!card.box && card.rect && card.rect.w > 0) {
+              card.box = { x: card.rect.x, y: card.rect.y, w: card.rect.w, h: card.rect.h };
+            }
             if (!card.pin) await placeMemoFor(card);
             saveCard(card);
             renderCards(); drawMemos();
@@ -2161,6 +2260,10 @@
           yes.textContent = "예";
           yes.onclick = async function () {
             card.inserted = true;
+            // 오려낸 자리를 테두리로 남긴다. 이후 조정해도 rect(AI에 보낸 범위)는 그대로다
+            if (!card.box && card.rect && card.rect.w > 0) {
+              card.box = { x: card.rect.x, y: card.rect.y, w: card.rect.w, h: card.rect.h };
+            }
             await placeMemoFor(card);       // 붙이는 순간 자리를 정해 화면과 PDF를 맞춘다
             renderCards(); drawMemos(); saveCard(card);
           };
@@ -2247,6 +2350,106 @@
     var x = card.rect.x + card.rect.w + 6 / pw;
     if (x + size.w / pw > 1) x = Math.max(0, 1 - size.w / pw);
     return { x: x, y: Math.max(0, Math.min(card.rect.y, 1 - size.h / ph)) };
+  }
+
+  /*
+   * 범위 테두리 그리기 · 옮기기 · 크기 바꾸기
+   *
+   * card.box는 card.rect를 베껴 시작하지만 그 뒤로는 따로 논다.
+   * rect는 AI에 보낸 그림의 범위라 손대면 이미 받은 정리와 어긋난다.
+   */
+  function drawBoxes() {
+    if (!state.layer || !state.viewport) return;
+    Array.prototype.forEach.call(state.layer.querySelectorAll(".boxsel"), function (b) { b.remove(); });
+
+    var W = state.viewport.width / state.dprUsed;
+    var H = state.viewport.height / state.dprUsed;
+
+    state.cards.forEach(function (card) {
+      if (!card.inserted || card.page !== state.page || !card.box) return;
+
+      var el = document.createElement("div");
+      el.className = "boxsel";
+      function place() {
+        el.style.left = (card.box.x * W) + "px";
+        el.style.top = (card.box.y * H) + "px";
+        el.style.width = (card.box.w * W) + "px";
+        el.style.height = (card.box.h * H) + "px";
+      }
+      place();
+      el.title = "끌어서 옮기고, 모서리로 크기를 맞춥니다";
+
+      ["nw", "ne", "sw", "se"].forEach(function (k) {
+        var hd = document.createElement("div");
+        hd.className = "bh " + k;
+        hd.dataset.k = k;
+        el.appendChild(hd);
+      });
+
+      var del = document.createElement("button");
+      del.className = "bdel";
+      del.textContent = "테두리 빼기";
+      del.onclick = function (e) {
+        e.stopPropagation();
+        var had = card.box;
+        card.box = null;
+        saveCard(card);
+        drawBoxes();
+        offerUndo("테두리를 뺐습니다.", function () {
+          card.box = had; saveCard(card); drawBoxes(); setStatus("되돌렸습니다.");
+        });
+      };
+      del.addEventListener("pointerdown", function (e) { e.stopPropagation(); });
+      el.appendChild(del);
+
+      var drag = null;
+      el.addEventListener("pointerdown", function (e) {
+        e.stopPropagation();                 // 레이어의 영역 선택이 시작되지 않게
+        el.setPointerCapture(e.pointerId);
+        var r = state.layer.getBoundingClientRect();
+        drag = {
+          k: e.target.dataset ? e.target.dataset.k : null,   // 모서리면 크기 조절
+          px: e.clientX - r.left,
+          py: e.clientY - r.top,
+          box: { x: card.box.x, y: card.box.y, w: card.box.w, h: card.box.h }
+        };
+      });
+
+      el.addEventListener("pointermove", function (e) {
+        if (!drag) return;
+        var r = state.layer.getBoundingClientRect();
+        var dx = (e.clientX - r.left - drag.px) / W;
+        var dy = (e.clientY - r.top - drag.py) / H;
+        var b = drag.box, n;
+
+        if (!drag.k) {
+          n = { x: b.x + dx, y: b.y + dy, w: b.w, h: b.h };
+        } else {
+          n = { x: b.x, y: b.y, w: b.w, h: b.h };
+          if (drag.k.indexOf("w") >= 0) { n.x = b.x + dx; n.w = b.w - dx; }
+          if (drag.k.indexOf("e") >= 0) { n.w = b.w + dx; }
+          if (drag.k.indexOf("n") >= 0) { n.y = b.y + dy; n.h = b.h - dy; }
+          if (drag.k.indexOf("s") >= 0) { n.h = b.h + dy; }
+          var MIN = 8 / W;                   // 너무 작아지면 다시 잡을 수 없다
+          if (n.w < MIN) { n.w = MIN; n.x = b.x; }
+          if (n.h < MIN) { n.h = MIN; n.y = b.y; }
+        }
+        n.x = Math.max(0, Math.min(n.x, 1 - n.w));
+        n.y = Math.max(0, Math.min(n.y, 1 - n.h));
+        card.box = n;
+        place();
+      });
+
+      function done() {
+        if (!drag) return;
+        drag = null;
+        saveCard(card);
+      }
+      el.addEventListener("pointerup", done);
+      el.addEventListener("pointercancel", done);
+
+      state.layer.appendChild(el);
+    });
   }
 
   function drawMemos() {
@@ -2391,6 +2594,9 @@
       el.addEventListener("pointercancel", function () { drag = null; });
       state.layer.appendChild(el);
     });
+  
+    // 테두리는 메모와 늘 같이 움직인다. 여기서 함께 그려야 지우고도 남는 일이 없다
+    drawBoxes();
   }
 
   /*
@@ -2444,6 +2650,28 @@
       QuadPoints: [x, y + h, x + w, y + h, x, y, x + w, y],
       C: rgb,
       CA: 1,
+      F: 4,
+      AP: { N: doc.context.register(ap) },
+      T: PDFLib.PDFString.of("오려둔 공책"),
+      Capnote: PDFLib.PDFBool.True
+    });
+    page.node.addAnnot(doc.context.register(annot));
+  }
+
+  /*
+   * 범위 테두리는 Square 주석으로 넣는다. 화면에서 맞춰 둔 자리를 그대로 쓴다.
+   * 메모·형광펜과 같은 /Capnote 표시를 달아 다시 내보낼 때 겹치지 않는다.
+   */
+  function addBoxAnnot(doc, page, r) {
+    var ap = doc.context.stream(
+      "1 0.85 0.24 RG 1.5 w 0.75 0.75 " + (r.w - 1.5) + " " + (r.h - 1.5) + " re S",
+      { Type: "XObject", Subtype: "Form", FormType: 1, BBox: [0, 0, r.w, r.h] }
+    );
+    var annot = doc.context.obj({
+      Type: "Annot", Subtype: "Square",
+      Rect: [r.x, r.y, r.x + r.w, r.y + r.h],
+      C: [1, 0.85, 0.24],
+      BS: { W: 1.5, S: "S" },
       F: 4,
       AP: { N: doc.context.register(ap) },
       T: PDFLib.PDFString.of("오려둔 공책"),
@@ -3117,6 +3345,16 @@
          * 표시가 오히려 지저분했고, 강조는 형광펜이 맡는다.
          */
 
+        // 화면에서 맞춰 둔 테두리를 그대로 넣는다 (뺐으면 안 넣는다)
+        if (card.box) {
+          addBoxAnnot(doc, pg, {
+            x: card.box.x * pw,
+            y: ph - (card.box.y + card.box.h) * ph,
+            w: card.box.w * pw,
+            h: card.box.h * ph
+          });
+        }
+
         var memo = memoToPng(card.memo || card.summary, card.manual);
         var png = await doc.embedPng(memo.dataUrl);
 
@@ -3245,7 +3483,16 @@
     if (!state.pdf) return;
     if (e.key === "ArrowLeft") $("prev").click();
     if (e.key === "ArrowRight") $("next").click();
-    if (e.key === "Escape") closeMemoEdit();
+    if (e.key === "Escape") { state.selMark = null; drawMarks(); closeMemoEdit(); }
+    if (e.key === "Delete" || e.key === "Backspace") {
+      // 글을 치는 중에는 건드리지 않는다
+      var t = e.target && e.target.tagName;
+      if (t === "INPUT" || t === "TEXTAREA") return;
+      if (!state.selMark) return;
+      e.preventDefault();
+      var mk = state.marks.filter(function (m) { return m.id === state.selMark; })[0];
+      if (mk) removeMark(mk);
+    }
   });
 })();
 </script>
