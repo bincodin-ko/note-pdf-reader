@@ -28,7 +28,22 @@ function freePort() {
 
 function hasClaudeCli() {
   return new Promise((resolve) => {
-    execFile("claude", ["--version"], { timeout: 8000 }, (err) => resolve(!err));
+    /*
+     * Windows에서 npm 전역 설치본은 claude.cmd다. Node는 보안 수정 이후
+     * shell 없이 .cmd를 띄우지 못해, 깔려 있어도 "없음"으로 잡혔다.
+     * GUI 앱은 로그인 셸의 PATH도 물려받지 않으므로 흔한 경로를 보태준다.
+     */
+    const env = { ...process.env };
+    if (process.platform !== "win32") {
+      const home = require("node:os").homedir();
+      env.PATH = (env.PATH || "") + ":" + [
+        "/usr/local/bin", "/opt/homebrew/bin",
+        path.join(home, ".npm-global/bin"), path.join(home, ".local/bin")
+      ].join(":");
+    }
+    execFile("claude", ["--version"],
+      { env, shell: process.platform === "win32", timeout: 8000, windowsHide: true },
+      (err) => resolve(!err));
   });
 }
 

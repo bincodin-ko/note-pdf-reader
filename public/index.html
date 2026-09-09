@@ -116,7 +116,12 @@
     padding: 20px;
     display: flex;
     justify-content: center;
-    align-items: flex-start;
+    /*
+     * safe를 붙이는 이유: 그냥 center면 페이지가 화면보다 클 때
+     * 위쪽이 잘려 나가고 스크롤로도 못 올라간다.
+     * safe는 넘칠 때만 자동으로 시작 정렬로 돌아간다.
+     */
+    align-items: safe center;
     min-width: 0;
   }
 
@@ -318,6 +323,27 @@
   .more { margin-top: 9px; }
   .more button { font-size: 13px; padding: 5px 11px; }
 
+  /* Claude Code가 준비 안 됐을 때만 뜨는 띠 */
+  .cliwarn {
+    display: none;
+    padding: 10px 12px;
+    border-top: 1px solid var(--rule);
+    background: rgba(255, 139, 107, 0.10);
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--text);
+  }
+  .cliwarn.on { display: block; }
+  .cliwarn .why { color: var(--muted); margin-bottom: 8px; }
+  .cliwarn .row { display: flex; gap: 8px; }
+  .cliwarn button { font-size: 12px; padding: 6px 10px; }
+  .cliwarn code {
+    background: var(--ink);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 11.5px;
+  }
+
   /* 질문 입력칸 — 내보내기 버튼 위, 카드 목록 바로 아래 */
   .askbar {
     padding: 10px 12px;
@@ -502,6 +528,13 @@
     <div class="cards" id="cards">
       <div class="hint">아직 오려낸 것이 없습니다.<br />PDF 위에서 드래그해 보세요.</div>
     </div>
+    <div class="cliwarn" id="cliwarn">
+      <div class="why" id="cliwhy"></div>
+      <div class="row">
+        <button class="primary" id="cliLogin">로그인 창 열기</button>
+        <button id="cliRecheck">다시 확인</button>
+      </div>
+    </div>
     <div class="askbar">
       <input id="q" type="text" placeholder="이 쪽에 대해 물어보기" maxlength="300" disabled />
       <button id="qsend" disabled>묻기</button>
@@ -533,6 +566,61 @@
     .then(function (d) { $("ver").textContent = "v" + d.version; })
     .catch(function () {});
 
+  /*
+   * Claude Code 준비 상태
+   *
+   * "정리를 받아오지 못했습니다"만 뜨면 사용자는 뭘 해야 할지 알 수 없다.
+   * 깔려 있는지 먼저 확인해서, 아니면 무엇이 문제인지와 할 일을 같이 보여준다.
+   */
+  function showCliWarn(msg) {
+    $("cliwhy").innerHTML = msg;
+    $("cliwarn").classList.add("on");
+  }
+
+  function checkCli() {
+    return fetch("/api/status")
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d.mode !== "cli") { $("cliwarn").classList.remove("on"); return true; }
+        if (d.claude && d.claude.installed) { $("cliwarn").classList.remove("on"); return true; }
+        showCliWarn(
+          "AI 정리를 쓰려면 Claude Code가 필요합니다.<br />" +
+          "터미널에서 <code>npm i -g @anthropic-ai/claude-code</code> 로 설치한 뒤, " +
+          "아래 버튼으로 로그인하세요."
+        );
+        return false;
+      })
+      .catch(function () { return true; });   // 확인 자체가 안 되면 굳이 겁주지 않는다
+  }
+
+  $("cliLogin").onclick = function () {
+    var b = $("cliLogin");
+    b.disabled = true;
+    b.textContent = "여는 중…";
+    fetch("/api/login", { method: "POST" })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        b.textContent = d.ok ? "터미널을 열었습니다" : "열지 못했습니다";
+        if (!d.ok) {
+          showCliWarn("터미널을 열지 못했습니다. 직접 터미널에서 <code>claude auth login</code> 을 실행해 주세요.");
+        }
+      })
+      .catch(function () { b.textContent = "열지 못했습니다"; })
+      .then(function () {
+        setTimeout(function () { b.disabled = false; b.textContent = "로그인 창 열기"; }, 2500);
+      });
+  };
+
+  $("cliRecheck").onclick = function () {
+    $("cliRecheck").textContent = "확인 중…";
+    checkCli().then(function (ok) {
+      $("cliRecheck").textContent = "다시 확인";
+      if (ok) setStatus("Claude Code가 준비됐습니다.");
+    });
+  };
+
+  checkCli();
+
   var state = {
     pdf: null,
     bytes: null,          // 내보내기용 원본 사본
@@ -541,6 +629,7 @@
     page: 1,
     pages: 0,
     scale: 1.25,
+    userZoomed: false,      // 손으로 확대한 뒤에는 자동 맞춤이 끼어들지 않게
     dpr: Math.min(window.devicePixelRatio || 1, 2),
     viewport: null,
     canvas: null,
@@ -623,6 +712,11 @@
       state.docName = f.name.replace(/\.pdf$/i, "");
       state.docKey = (f.name + ":" + f.size).replace(/[^\w가-힣.:-]/g, "_").slice(0, 120);
       $("empty").style.display = "none";
+
+      // 열자마자 창에 맞춘다
+      state.scale = fitScale(await state.pdf.getPage(1));
+      state.userZoomed = false;
+
       await loadCards();
       await renderPage();
       setStatus(state.docName + " · " + state.pages + "쪽");
@@ -631,6 +725,26 @@
     }
     e.target.value = "";
   };
+
+  /*
+   * 창에 맞는 배율 찾기
+   *
+   * 배율이 1.25로 고정이라 창 크기와 상관없이 같은 크기로 그려졌다.
+   * 16:9 강의 슬라이드는 옆이 남고 A4는 아래가 잘리는 식으로 매번 어긋났다.
+   * 페이지 전체가 들어오도록 맞춘다 — 강의자료는 한 장을 통째로 보는 게 먼저다.
+   */
+  function fitScale(page) {
+    var vp = page.getViewport({ scale: 1 });
+    var st = $("stage");
+    var cs = getComputedStyle(st);
+    var padX = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+    var padY = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+    var flips = (46 + 20) * 2;      // 양옆 넘김 버튼이 차지하는 폭
+    var w = st.clientWidth - padX - flips;
+    var h = st.clientHeight - padY;
+    if (!(w > 0 && h > 0)) return state.scale;
+    return Math.max(0.25, Math.min(3, Math.min(w / vp.width, h / vp.height)));
+  }
 
   /* ---------- 페이지 그리기 ---------- */
 
@@ -684,8 +798,29 @@
     function () { if (state.page > 1) { state.page--; closePin(); renderPage(); } };
   $("next").onclick = $("flipNext").onclick =
     function () { if (state.page < state.pages) { state.page++; closePin(); renderPage(); } };
-  $("zoomin").onclick = function () { state.scale = Math.min(3, state.scale + 0.25); renderPage(); };
-  $("zoomout").onclick = function () { state.scale = Math.max(0.5, state.scale - 0.25); renderPage(); };
+  $("zoomin").onclick = function () {
+    state.scale = Math.min(3, state.scale + 0.25); state.userZoomed = true; renderPage();
+  };
+  $("zoomout").onclick = function () {
+    state.scale = Math.max(0.25, state.scale - 0.25); state.userZoomed = true; renderPage();
+  };
+
+  /*
+   * 창 크기가 바뀌면 다시 맞춘다. 손으로 확대한 뒤에는 건드리지 않는다 —
+   * 일부러 키워 놓은 걸 창 옮겼다고 되돌리면 성가시다.
+   */
+  var fitTimer = null;
+  window.addEventListener("resize", function () {
+    if (!state.pdf || state.userZoomed) return;
+    clearTimeout(fitTimer);
+    fitTimer = setTimeout(async function () {
+      var s = fitScale(await state.pdf.getPage(state.page));
+      if (Math.abs(s - state.scale) < 0.01) return;
+      state.scale = s;
+      closePin();
+      renderPage();
+    }, 150);
+  });
 
   /* ---------- 영역 선택 ---------- */
 
@@ -807,6 +942,8 @@
       if (/ENOENT|claude CLI/.test(why)) {
         why = "Claude Code가 설치돼 있지 않습니다. 터미널에서 npm i -g @anthropic-ai/claude-code 후 claude auth login 하세요.";
       }
+      // 실패했으면 준비 상태를 다시 살펴 안내를 띄운다
+      if (/claude|ENOENT|찾지 못했|끝났습니다/.test(why)) checkCli();
       throw new Error(why || ("http " + res.status));
     }
     var data = await res.json();

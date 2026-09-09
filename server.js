@@ -14,7 +14,7 @@ const http = require("node:http");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { execFile } = require("node:child_process");
+const { execFile, spawn } = require("node:child_process");
 
 const PORT = process.env.PORT || 5173;
 
@@ -72,43 +72,111 @@ function send(res, code, body, type) {
  * 이미지는 인자로 못 넘기므로 임시 파일로 떨군 뒤 경로를 프롬프트에 적어 준다.
  * Claude Code가 Read 도구로 그 파일을 직접 읽는다.
  */
-function askViaCli(messages) {
-  return new Promise((resolve, reject) => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "capnote-"));
-    const parts = [];
 
-    for (const m of messages) {
-      const blocks = Array.isArray(m.content) ? m.content : [{ type: "text", text: m.content }];
-      for (const b of blocks) {
-        if (b.type === "text") {
-          parts.push(b.text);
-        } else if (b.type === "image" && b.source && b.source.data) {
-          const f = path.join(dir, `crop-${parts.length}.jpg`);
-          fs.writeFileSync(f, Buffer.from(b.source.data, "base64"));
-          parts.push(`아래 이미지 파일을 읽고 답하세요: ${f}`);
-        }
-      }
+const IS_WIN = process.platform === "win32";
+
+/*
+ * GUI로 띄운 앱은 로그인 셸의 PATH를 물려받지 않는다.
+ * 터미널에서는 claude가 잡히는데 앱에서만 "설치 안 됨"이 되는 게 이 때문이다.
+ * npm 전역과 흔한 설치 경로를 보태준다.
+ */
+function envForClaude() {
+  const env = { ...process.env };
+  delete env.ANTHROPIC_API_KEY;          // 구독 자격으로 붙게 한다
+
+  if (!IS_WIN) {
+    const home = os.homedir();
+    const extra = [
+      "/usr/local/bin",
+      "/opt/homebrew/bin",
+      path.join(home, ".npm-global/bin"),
+      path.join(home, ".local/bin"),
+      path.join(home, ".volta/bin")
+    ];
+    env.PATH = (env.PATH || "") + ":" + extra.join(":");
+  }
+  return env;
+}
+
+/*
+ * claude를 띄우고 프롬프트를 stdin으로 넘긴다.
+ *
+ * 인자로 넘기지 않는 이유가 두 가지다.
+ *   - Windows 명령줄은 8191자에서 잘린다. 원문 텍스트만 2500자까지 들어간다
+ *   - shell을 거치면 프롬프트 안의 따옴표가 명령을 망가뜨린다
+ * stdin으로 주면 둘 다 사라진다.
+ *
+ * shell은 Windows에서만 켠다. npm 전역 설치본이 claude.cmd인데
+ * Node는 보안 수정 이후 shell 없이 .cmd를 띄우지 못한다.
+ */
+function runClaude(prompt) {
+  return new Promise((resolve, reject) => {
+    const args = ["-p", "--output-format", "json", "--allowedTools", "Read", "--max-turns", "4"];
+    let child;
+    try {
+      child = spawn("claude", args, {
+        env: envForClaude(),
+        shell: IS_WIN,
+        windowsHide: true,
+        timeout: 120000
+      });
+    } catch (e) {
+      return reject(new Error("claude 실행 실패: " + e.message));
     }
 
-    const env = { ...process.env };
-    delete env.ANTHROPIC_API_KEY;          // 구독 자격으로 붙게 한다
+    let out = "", err = "";
+    child.stdout.on("data", (d) => { if (out.length < 20e6) out += d; });
+    child.stderr.on("data", (d) => { if (err.length < 1e6) err += d; });
 
-    execFile(
-      "claude",
-      ["-p", parts.join("\n\n"), "--output-format", "json", "--allowedTools", "Read", "--max-turns", "4"],
-      { env, timeout: 120000, maxBuffer: 20 * 1024 * 1024 },
-      (err, stdout) => {
-        fs.rm(dir, { recursive: true, force: true }, () => {});
-        if (err) return reject(new Error("claude CLI 실행 실패: " + err.message));
-        let text = stdout;
-        try {
-          const j = JSON.parse(stdout);
-          text = j.result || j.text || stdout;
-        } catch (e) { /* 평문이면 그대로 */ }
-        resolve({ content: [{ type: "text", text: String(text) }] });
-      }
-    );
+    child.on("error", (e) => {
+      reject(new Error(
+        e.code === "ENOENT"
+          ? "claude 명령을 찾지 못했습니다"
+          : "claude 실행 실패: " + e.message
+      ));
+    });
+
+    child.on("close", (code) => {
+      if (code === 0) return resolve(out);
+      // 진짜 이유를 그대로 올려보낸다. 뭉개면 "그냥 실패"로만 보인다
+      reject(new Error(
+        "claude가 " + code + "번으로 끝났습니다" + (err.trim() ? ": " + err.trim().slice(0, 400) : "")
+      ));
+    });
+
+    child.stdin.on("error", () => {});   // 상대가 먼저 죽으면 EPIPE가 난다
+    child.stdin.end(prompt);
   });
+}
+
+async function askViaCli(messages) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "capnote-"));
+  const parts = [];
+
+  for (const m of messages) {
+    const blocks = Array.isArray(m.content) ? m.content : [{ type: "text", text: m.content }];
+    for (const b of blocks) {
+      if (b.type === "text") {
+        parts.push(b.text);
+      } else if (b.type === "image" && b.source && b.source.data) {
+        const f = path.join(dir, `crop-${parts.length}.jpg`);
+        fs.writeFileSync(f, Buffer.from(b.source.data, "base64"));
+        parts.push(`아래 이미지 파일을 읽고 답하세요: ${f}`);
+      }
+    }
+  }
+
+  try {
+    const stdout = await runClaude(parts.join("\n\n"));
+    let text = stdout;
+    try {
+      const j = JSON.parse(stdout);
+      text = j.result || j.text || stdout;
+    } catch (e) { /* 평문이면 그대로 */ }
+    return { content: [{ type: "text", text: String(text) }] };
+  } finally {
+    fs.rm(dir, { recursive: true, force: true }, () => {});
+  }
 }
 
 async function ask(req, res) {
@@ -150,8 +218,66 @@ async function ask(req, res) {
   });
 }
 
+/*
+ * Claude Code가 깔려 있는지, 로그인은 됐는지 화면이 물어볼 수 있게 한다.
+ * "왜 AI만 안 되는지"를 사용자가 알 방법이 없었다.
+ */
+function claudeStatus() {
+  return new Promise((resolve) => {
+    execFile("claude", ["--version"], { env: envForClaude(), shell: IS_WIN, timeout: 15000 },
+      (err, stdout) => {
+        if (err) return resolve({ installed: false, reason: err.code === "ENOENT" ? "not-found" : String(err.message) });
+        resolve({ installed: true, version: String(stdout).trim().slice(0, 60) });
+      });
+  });
+}
+
+/*
+ * 로그인은 앱 안에서 끝낼 수 없다. claude auth login이 대화형이라
+ * 브라우저와 터미널을 오가야 하기 때문이다. 그래서 터미널만 열어 준다 —
+ * 사용자가 명령을 외워서 직접 치는 것보다는 낫다.
+ */
+function openLoginTerminal() {
+  return new Promise((resolve) => {
+    const env = envForClaude();
+    let cmd, args, opts = { env, detached: true, stdio: "ignore" };
+
+    if (IS_WIN) {
+      cmd = "cmd"; args = ["/c", "start", "", "cmd", "/k", "claude auth login"];
+    } else if (process.platform === "darwin") {
+      cmd = "osascript";
+      args = ["-e", 'tell application "Terminal" to do script "claude auth login"',
+              "-e", 'tell application "Terminal" to activate'];
+    } else {
+      cmd = "x-terminal-emulator"; args = ["-e", "claude auth login"];
+    }
+
+    try {
+      const c = spawn(cmd, args, opts);
+      c.on("error", (e) => resolve({ ok: false, error: String(e.message) }));
+      c.unref();
+      setTimeout(() => resolve({ ok: true }), 400);
+    } catch (e) {
+      resolve({ ok: false, error: String(e.message) });
+    }
+  });
+}
+
 http.createServer((req, res) => {
   if (req.method === "POST" && req.url === "/api/ask") return ask(req, res);
+
+  if (req.url === "/api/status") {
+    return claudeStatus().then(function (st) {
+      send(res, 200, JSON.stringify({ mode: MODE, version: VERSION, claude: st }));
+    });
+  }
+
+  if (req.method === "POST" && req.url === "/api/login") {
+    return openLoginTerminal().then(function (r) {
+      send(res, r.ok ? 200 : 500, JSON.stringify(r));
+    });
+  }
+
   if (req.url === "/api/version") {
     return send(res, 200, JSON.stringify({ version: VERSION, mode: MODE }));
   }
