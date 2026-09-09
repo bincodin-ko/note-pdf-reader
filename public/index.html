@@ -53,6 +53,14 @@
     font-size: 15px;
   }
   .mark span { color: var(--marker); }
+  /* 어느 빌드를 보고 있는지 한눈에 — 설치파일 이름만으로는 구분이 안 된다 */
+  .ver {
+    color: var(--muted);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    margin-left: -2px;
+    align-self: center;
+  }
 
   button {
     font: inherit;
@@ -460,6 +468,7 @@
 
 <div class="bar">
   <div class="mark">오려둔 <span>공책</span></div>
+  <span class="ver" id="ver"></span>
   <button id="open">PDF 열기</button>
   <input type="file" id="file" accept="application/pdf" hidden />
   <button id="prev" disabled>←</button>
@@ -517,6 +526,12 @@
     "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 
   var $ = function (id) { return document.getElementById(id); };
+
+  // 버전 표시. 실패해도 조용히 넘어간다 — 이것 때문에 앱이 안 뜨면 안 된다
+  fetch("/api/version")
+    .then(function (r) { return r.json(); })
+    .then(function (d) { $("ver").textContent = "v" + d.version; })
+    .catch(function () {});
 
   var state = {
     pdf: null,

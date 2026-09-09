@@ -17,6 +17,17 @@ const path = require("node:path");
 const { execFile } = require("node:child_process");
 
 const PORT = process.env.PORT || 5173;
+
+/*
+ * 어느 빌드를 돌리고 있는지 화면에서 확인할 수 있어야 한다.
+ * 설치파일 이름만으로는 구분이 안 돼서, 같은 버전 위에 덮어 깔고도
+ * 예전 앱을 보고 있는지 알 방법이 없었다.
+ * 브라우저에서는 package.json을 읽을 수 없으므로 서버가 대신 내준다.
+ */
+let VERSION = "0.0.0";
+try {
+  VERSION = require("./package.json").version || VERSION;
+} catch (e) { /* 못 읽어도 앱은 돌아야 한다 */ }
 const MODEL = process.env.CLAUDE_MODEL || "claude-sonnet-5";
 const PUBLIC = path.join(__dirname, "public");
 
@@ -141,6 +152,9 @@ async function ask(req, res) {
 
 http.createServer((req, res) => {
   if (req.method === "POST" && req.url === "/api/ask") return ask(req, res);
+  if (req.url === "/api/version") {
+    return send(res, 200, JSON.stringify({ version: VERSION, mode: MODE }));
+  }
 
   const rel = req.url === "/" ? "index.html" : decodeURIComponent(req.url.split("?")[0]).replace(/^\/+/, "");
   const file = path.join(PUBLIC, rel);
@@ -151,7 +165,7 @@ http.createServer((req, res) => {
     send(res, 200, buf, TYPES[path.extname(file)] || "application/octet-stream");
   });
 }).listen(PORT, () => {
-  console.log(`\n  오려둔 공책 → http://localhost:${PORT}`);
+  console.log(`\n  오려둔 공책 v${VERSION} → http://localhost:${PORT}`);
   console.log(`  모드: ${MODE_LABEL}  [${MODE}]`);
 
   if (API_NO_KEY) {
