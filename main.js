@@ -16,7 +16,27 @@ const { execFile } = require("node:child_process");
 
 let win = null;
 
-function freePort() {
+/*
+ * 포트를 고정한다.
+ *
+ * 예전에는 켤 때마다 빈 포트를 새로 골랐다. 그러면 주소가 매번 바뀌는데
+ * 메모를 담아 두는 IndexedDB는 주소마다 따로 놀기 때문에, 앱을 껐다 켜면
+ * 그동안 적어 둔 메모가 전부 사라졌다.
+ * 같은 포트를 먼저 잡아 보고, 이미 쓰이고 있을 때만 다른 포트로 물러난다.
+ */
+const PREFERRED_PORT = 45873;
+
+function canBind(port) {
+  return new Promise((resolve) => {
+    const s = net.createServer();
+    s.once("error", () => resolve(false));
+    s.listen(port, "127.0.0.1", () => s.close(() => resolve(true)));
+  });
+}
+
+async function freePort() {
+  if (await canBind(PREFERRED_PORT)) return PREFERRED_PORT;
+  // 그 포트를 누가 쓰고 있으면 어쩔 수 없다. 이때는 메모가 이어지지 않는다
   return new Promise((resolve) => {
     const s = net.createServer();
     s.listen(0, "127.0.0.1", () => {
