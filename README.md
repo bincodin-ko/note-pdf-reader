@@ -9,14 +9,16 @@ PDF 강의자료에서 영역을 드래그하면 그 부분을 잘라 AI 정리�
 
 Node 18 이상이 필요합니다. 설치할 패키지는 없습니다.
 
-두 가지 모드가 있고, **환경변수 유무로 자동으로 갈립니다.**
+두 가지 모드가 있고, **기본은 구독입니다.**
+모드는 `CLAUDE_USE_API`로만 정해집니다 — `ANTHROPIC_API_KEY`가 환경에 있어도
+그것만으로는 API 경로로 가지 않습니다. 돈이 나가는 쪽은 명시적으로 켜야 합니다.
 
-### A. 구독으로 돌리기 (API 키 없음)
+### A. 구독으로 돌리기 (기본)
 
 ```bash
 npm i -g @anthropic-ai/claude-code
 claude auth login          # Pro/Max 계정으로 로그인
-node server.js             # ANTHROPIC_API_KEY를 설정하지 않으면 이 모드
+node server.js             # 아무것도 안 하면 이 모드
 ```
 
 서버가 요청마다 `claude -p`를 실행해 답을 받아옵니다.
@@ -27,15 +29,22 @@ node server.js             # ANTHROPIC_API_KEY를 설정하지 않으면 이 모
 - 확인 필요: `-p` 모드가 구독이 아니라 API로 과금된다는 제보가 있습니다.
   처음 몇 번 돌린 뒤 청구 대시보드를 꼭 확인하세요.
 
-### B. API 키로 돌리기
+### B. API 키로 돌리기 (명시적으로 켤 때만)
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...      # PowerShell: $env:ANTHROPIC_API_KEY="sk-ant-..."
+export CLAUDE_USE_API=1                  # 이걸 켜야 API 경로로 갑니다
+export ANTHROPIC_API_KEY=sk-ant-...      # PowerShell: $env:CLAUDE_USE_API="1"; $env:ANTHROPIC_API_KEY="sk-ant-..."
 node server.js
 ```
 
 - 장점: 빠르고 안정적, 배포 가능
 - 단점: 호출당 요금
+
+`CLAUDE_USE_API=1`을 켰는데 키가 없으면 서버를 죽이지 않고 구독 경로로 되돌린 뒤
+시작 로그에 그 사실을 찍습니다. 수업 중에 오타 하나로 도구가 안 뜨는 쪽이 더 나쁘기 때문입니다.
+
+지금 어느 모드인지는 두 군데에서 확인할 수 있습니다 — 서버 시작 로그의 `모드:` 줄,
+그리고 `/api/ask` 응답의 `X-Capnote-Mode` 헤더와 본문 `mode` 필드(`"cli"` 또는 `"api"`).
 
 브라우저에서 `http://localhost:5173`
 
@@ -54,6 +63,22 @@ npm run dist     # 설치파일 생성 → dist/ 폴더
 
 `npm run dist`를 돌린 운영체제의 설치파일이 나옵니다.
 Windows에서는 `.exe`, macOS에서는 `.dmg`, Linux에서는 `.AppImage`.
+
+### 세 OS 것을 한 번에 (GitHub Actions)
+
+macOS 설치파일은 macOS에서만 만들 수 있어서, 한 대로는 세 개를 다 못 만듭니다.
+`.github/workflows/build-installers.yml`이 각 OS 러너에서 따로 빌드해 줍니다.
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0     # 세 OS 빌드 → Release에 첨부
+```
+
+태그 없이 동작만 확인하고 싶으면 Actions 탭에서 수동 실행(Run workflow)하면 됩니다.
+이때는 Release를 만들지 않고 결과물을 Artifacts에만 올립니다.
+
+빌드 도구(electron, electron-builder)는 워크플로가 버전을 박아 직접 받습니다.
+`package.json`에 의존성을 넣지 않은 건 이 앱에 런타임 npm 의존성이 없기 때문입니다.
 
 `main.js`가 하는 일은 세 가지뿐입니다 — 빈 포트를 찾아 `server.js`를 앱 안에서 띄우고,
 그 주소를 창으로 열고, Claude Code CLI가 있는지 확인해 없으면 안내합니다.
@@ -113,6 +138,10 @@ public/storage.js    IndexedDB 저장소 (Claude 아티팩트의 window.storage 
 - **한글 폰트 문제로 PDF 내보내기의 메모는 이미지로 심습니다.**
   pdf-lib 표준 폰트에 한글이 없어서, 메모를 캔버스에 그린 뒤 PNG로 얹는 방식입니다.
   선택 가능한 텍스트가 필요해지면 한글 TTF를 embed하도록 바꿔야 합니다.
+- **메모 자리는 자동으로 빈 곳을 찾습니다.** 오려낸 영역 오른쪽 → 왼쪽 → 아래 → 위 순으로
+  보고, 다 막혔으면 페이지를 훑어 가장 가까운 여백에 놓습니다. 오려낸 그림과 다른 메모는
+  절대 덮지 않고, 본문 글자는 되도록 피합니다. 빽빽해서 여백이 없는 슬라이드에서는
+  글자를 조금 가릴 수 있는데, 그때도 오려낸 그림만은 지킵니다.
 - **브라우저 안이라 다른 앱 화면은 잡을 수 없습니다.** 이건 우회가 아니라 벽입니다.
   굿노트 화면까지 잡으려면 안드로이드 앱이 필요합니다.
 

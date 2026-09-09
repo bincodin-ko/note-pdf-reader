@@ -9,8 +9,9 @@ PDF 강의자료에서 마우스로 영역을 드래그하면 그 부분을 잘�
 
 ## 파일
 
-- `server.js` — 정적 서비스 + `/api/ask`. API 키가 있으면 Anthropic API로,
-  없으면 `claude -p`(Claude Code CLI)로 넘어간다
+- `server.js` — 정적 서비스 + `/api/ask`. 기본은 `claude -p`(Claude Code CLI, 구독)이고,
+  `CLAUDE_USE_API=1`을 켰을 때만 키를 읽어 Anthropic API로 간다.
+  키가 환경에 있다는 이유만으로 과금 경로로 새지 않게 하려는 것
 - `public/index.html` — 앱 전체. 화면·선택·카드·메모·내보내기가 한 파일에 들어 있다
 - `public/storage.js` — IndexedDB 저장소
 - `main.js` — Electron 껍데기. 서버를 앱 안에서 띄우고 창으로 연다
