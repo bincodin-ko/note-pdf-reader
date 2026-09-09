@@ -323,6 +323,34 @@
   .more { margin-top: 9px; }
   .more button { font-size: 13px; padding: 5px 11px; }
 
+  /*
+   * Claude 상태 칩 — 늘 보인다.
+   * 예전에는 AI를 부르다 실패해야만 안내가 떴다. 그때는 이미 늦다.
+   */
+  .chip {
+    display: none;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    padding: 5px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--rule);
+    background: var(--ink-2);
+    color: var(--muted);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .chip.on { display: inline-flex; }
+  .chip .dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--muted); flex: 0 0 auto;
+  }
+  .chip.ready { color: var(--muted); }
+  .chip.ready .dot { background: #57c98a; }
+  .chip.need { color: var(--marker); border-color: rgba(255,216,61,0.45); }
+  .chip.need .dot { background: var(--marker); }
+  .chip:hover { border-color: var(--marker); }
+
   /* Claude Code가 준비 안 됐을 때만 뜨는 띠 */
   .cliwarn {
     display: none;
@@ -495,6 +523,7 @@
 <div class="bar">
   <div class="mark">오려둔 <span>공책</span></div>
   <span class="ver" id="ver"></span>
+  <button class="chip" id="chip" title="Claude Code 상태"><span class="dot"></span><span id="chipText">확인 중…</span></button>
   <button id="open">PDF 열기</button>
   <input type="file" id="file" accept="application/pdf" hidden />
   <button id="prev" disabled>←</button>
@@ -572,26 +601,68 @@
    * "정리를 받아오지 못했습니다"만 뜨면 사용자는 뭘 해야 할지 알 수 없다.
    * 깔려 있는지 먼저 확인해서, 아니면 무엇이 문제인지와 할 일을 같이 보여준다.
    */
-  function showCliWarn(msg) {
-    $("cliwhy").innerHTML = msg;
-    $("cliwarn").classList.add("on");
+  function setChip(cls, text) {
+    var c = $("chip");
+    c.className = "chip on " + cls;
+    $("chipText").textContent = text;
   }
 
+  function showCliWarn(msg, open) {
+    $("cliwhy").innerHTML = msg;
+    if (open) $("cliwarn").classList.add("on");
+  }
+
+  /*
+   * 시작하자마자 확인한다.
+   * 설치 여부만 보면 "깔려는 있는데 로그인 안 된" 상태가 통과해서,
+   * 정작 AI를 부를 때가 되어서야 실패했다. 로그인까지 본다.
+   */
   function checkCli() {
+    setChip("", "확인 중…");
     return fetch("/api/status")
       .then(function (r) { return r.json(); })
       .then(function (d) {
-        if (d.mode !== "cli") { $("cliwarn").classList.remove("on"); return true; }
-        if (d.claude && d.claude.installed) { $("cliwarn").classList.remove("on"); return true; }
+        if (d.mode !== "cli") {              // API 모드면 Claude Code가 필요 없다
+          setChip("ready", "API 모드");
+          $("cliwarn").classList.remove("on");
+          return true;
+        }
+        var c = d.claude || {};
+        if (!c.installed) {
+          setChip("need", "Claude Code 설치 필요");
+          showCliWarn(
+            "AI 정리를 쓰려면 Claude Code가 필요합니다.<br />" +
+            "터미널에서 <code>npm i -g @anthropic-ai/claude-code</code> 로 설치한 뒤, " +
+            "아래 버튼으로 로그인하세요.", true);
+          return false;
+        }
+        if (!c.loggedIn) {
+          setChip("need", "Claude 로그인 필요");
+          showCliWarn(
+            "Claude Code는 설치돼 있는데 <b>로그인이 안 돼 있습니다.</b><br />" +
+            "아래 버튼을 누르면 로그인 창이 열립니다. 마치고 “다시 확인”을 눌러 주세요.", true);
+          return false;
+        }
+        setChip("ready", "Claude 준비됨");
         showCliWarn(
-          "AI 정리를 쓰려면 Claude Code가 필요합니다.<br />" +
-          "터미널에서 <code>npm i -g @anthropic-ai/claude-code</code> 로 설치한 뒤, " +
-          "아래 버튼으로 로그인하세요."
-        );
-        return false;
+          "Claude Code에 로그인돼 있습니다" + (c.version ? " (" + c.version + ")" : "") + ".<br />" +
+          "계정을 바꾸려면 아래에서 다시 로그인하세요.", false);
+        $("cliwarn").classList.remove("on");
+        return true;
       })
-      .catch(function () { return true; });   // 확인 자체가 안 되면 굳이 겁주지 않는다
+      .catch(function () {
+        setChip("", "상태 확인 실패");
+        return true;                          // 확인이 안 될 뿐이니 굳이 막지 않는다
+      });
   }
+
+  // 칩을 누르면 언제든 로그인 칸을 열 수 있다 — 준비된 상태에서도 계정을 바꿀 수 있어야 한다
+  $("chip").onclick = function () {
+    var w = $("cliwarn");
+    if (w.classList.contains("on")) { w.classList.remove("on"); return; }
+    w.classList.add("on");
+    checkCli().then(function (ok) { if (ok) w.classList.add("on"); });
+  };
 
   $("cliLogin").onclick = function () {
     var b = $("cliLogin");
@@ -602,7 +673,7 @@
       .then(function (d) {
         b.textContent = d.ok ? "터미널을 열었습니다" : "열지 못했습니다";
         if (!d.ok) {
-          showCliWarn("터미널을 열지 못했습니다. 직접 터미널에서 <code>claude auth login</code> 을 실행해 주세요.");
+          showCliWarn("터미널을 열지 못했습니다. 직접 터미널에서 <code>claude auth login</code> 을 실행해 주세요.", true);
         }
       })
       .catch(function () { b.textContent = "열지 못했습니다"; })

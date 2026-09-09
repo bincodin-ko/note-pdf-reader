@@ -219,17 +219,42 @@ async function ask(req, res) {
 }
 
 /*
- * Claude Code가 깔려 있는지, 로그인은 됐는지 화면이 물어볼 수 있게 한다.
- * "왜 AI만 안 되는지"를 사용자가 알 방법이 없었다.
+ * Claude Code 준비 상태
+ *
+ * 설치 여부만 보면 부족하다. 깔려는 있는데 로그인이 안 된 상태가 그냥
+ * 통과해서, 정작 AI를 부를 때가 되어서야 실패했다.
+ * claude auth status가 loggedIn을 JSON으로 주므로 그것까지 본다.
  */
-function claudeStatus() {
+function runQuick(args, timeout) {
   return new Promise((resolve) => {
-    execFile("claude", ["--version"], { env: envForClaude(), shell: IS_WIN, timeout: 15000 },
-      (err, stdout) => {
-        if (err) return resolve({ installed: false, reason: err.code === "ENOENT" ? "not-found" : String(err.message) });
-        resolve({ installed: true, version: String(stdout).trim().slice(0, 60) });
+    execFile("claude", args,
+      { env: envForClaude(), shell: IS_WIN, timeout: timeout || 15000, windowsHide: true },
+      (err, stdout, stderr) => {
+        resolve({ err: err, out: String(stdout || ""), errOut: String(stderr || "") });
       });
   });
+}
+
+async function claudeStatus() {
+  const v = await runQuick(["--version"]);
+  if (v.err) {
+    return {
+      installed: false,
+      loggedIn: false,
+      reason: v.err.code === "ENOENT" ? "not-found" : String(v.err.message || "").slice(0, 200)
+    };
+  }
+
+  const a = await runQuick(["auth", "status"], 20000);
+  let loggedIn = false;
+  try {
+    loggedIn = JSON.parse(a.out).loggedIn === true;
+  } catch (e) {
+    // 출력 형식이 바뀌었을 때를 대비한 보루. 종료 코드와 문구로 짐작한다
+    loggedIn = !a.err && !/not logged|logged out|로그인/i.test(a.out + a.errOut);
+  }
+
+  return { installed: true, loggedIn: loggedIn, version: String(v.out).trim().slice(0, 60) };
 }
 
 /*
