@@ -310,6 +310,36 @@
   .more { margin-top: 9px; }
   .more button { font-size: 13px; padding: 5px 11px; }
 
+  /* 질문 입력칸 — 내보내기 버튼 위, 카드 목록 바로 아래 */
+  .askbar {
+    padding: 10px 12px;
+    border-top: 1px solid var(--rule);
+    display: flex;
+    gap: 8px;
+  }
+  .askbar input {
+    flex: 1;
+    min-width: 0;
+    font: inherit;
+    font-size: 13px;
+    color: var(--text);
+    background: var(--ink);
+    border: 1px solid var(--rule);
+    border-radius: 7px;
+    padding: 8px 10px;
+  }
+  .askbar input:focus { outline: none; border-color: var(--marker); }
+  .askbar button { font-size: 13px; padding: 8px 12px; }
+
+  /* 질문 카드는 오려낸 카드와 구분되게 왼쪽에 띠를 둔다 */
+  .card.qna { border-left: 3px solid var(--marker); }
+  .qtext {
+    font-size: 13px;
+    color: var(--marker);
+    margin-bottom: 8px;
+    line-height: 1.5;
+  }
+
   .foot {
     padding: 10px 12px;
     border-top: 1px solid var(--rule);
@@ -389,6 +419,38 @@
 
   .pin.manual { background: #9fd8ff; }
 
+  /*
+   * 양옆 페이지 넘김 버튼
+   *
+   * flex 흐름 안에 두어 페이지가 가운데를 유지하게 한다 (absolute로 얹으면
+   * 좁은 창에서 페이지 위를 덮어 드래그 선택을 가로챈다).
+   * 세로로는 sticky로 붙여, 긴 페이지를 스크롤해도 손이 닿는 자리에 남는다.
+   */
+  .pageflip {
+    position: sticky;
+    top: 42vh;
+    align-self: flex-start;
+    flex: 0 0 auto;
+    width: 46px;
+    height: 46px;
+    margin: 0 10px;
+    padding: 0;
+    border-radius: 50%;
+    border: 1px solid var(--rule);
+    background: rgba(34, 50, 63, 0.78);
+    color: var(--text);
+    font-size: 19px;
+    line-height: 1;
+    cursor: pointer;
+    /* 수업 중에 시선을 뺏지 않도록 평소엔 흐리게 두고, 가져가면 또렷해진다 */
+    opacity: 0.32;
+    transition: opacity 0.15s;
+  }
+  .pageflip:hover { opacity: 1; }
+  /* 첫/끝 쪽에서는 감추되 자리는 남긴다 — 사라지면 페이지가 좌우로 튄다 */
+  .pageflip:disabled { opacity: 0; pointer-events: none; }
+  .pageflip.gone { display: none; }
+
   @media (max-width: 820px) {
     .main { flex-direction: column; }
     .notes { width: auto; border-left: 0; border-top: 1px solid var(--rule); max-height: 46vh; }
@@ -414,11 +476,13 @@
 
 <div class="main">
   <div class="stage" id="stage">
+    <button class="pageflip gone" id="flipPrev" title="이전 쪽">←</button>
     <div class="empty" id="empty">
       <h2>강의자료를 열고 궁금한 부분에 네모를 그으세요</h2>
       <p>그은 부분이 잘려서 오른쪽에 정리로 쌓이고, 원하면 그 자리에 한 줄 메모로 붙습니다.</p>
       <button class="primary" id="open2">PDF 열기</button>
     </div>
+    <button class="pageflip gone" id="flipNext" title="다음 쪽">→</button>
   </div>
 
   <div class="notes">
@@ -428,6 +492,10 @@
     </div>
     <div class="cards" id="cards">
       <div class="hint">아직 오려낸 것이 없습니다.<br />PDF 위에서 드래그해 보세요.</div>
+    </div>
+    <div class="askbar">
+      <input id="q" type="text" placeholder="이 쪽에 대해 물어보기" maxlength="300" disabled />
+      <button id="qsend" disabled>묻기</button>
     </div>
     <div class="foot">
       <button id="expMd" disabled>정리 내보내기</button>
@@ -566,7 +634,7 @@
       ly.className = "layer";
       wrap.appendChild(cv);
       wrap.appendChild(ly);
-      $("stage").appendChild(wrap);
+      $("stage").insertBefore(wrap, $("flipNext"));   // 두 넘김 버튼 사이에 놓는다
       state.canvas = cv;
       state.layer = ly;
       bindSelection(ly);
@@ -583,16 +651,24 @@
     try { await state.renderTask.promise; } catch (e) { return; }
 
     $("pageno").textContent = state.page + " / " + state.pages;
-    ["prev", "next", "zoomin", "zoomout", "expMd", "expPdf"].forEach(function (id) {
+    ["prev", "next", "zoomin", "zoomout", "expMd", "expPdf", "q", "qsend"].forEach(function (id) {
       $(id).disabled = false;
     });
     $("prev").disabled = state.page <= 1;
     $("next").disabled = state.page >= state.pages;
+
+    // 양옆 버튼은 위 툴바 버튼과 같은 상태를 따른다
+    ["flipPrev", "flipNext"].forEach(function (id) { $(id).classList.remove("gone"); });
+    $("flipPrev").disabled = $("prev").disabled;
+    $("flipNext").disabled = $("next").disabled;
+
     drawPins();
   }
 
-  $("prev").onclick = function () { if (state.page > 1) { state.page--; closePin(); renderPage(); } };
-  $("next").onclick = function () { if (state.page < state.pages) { state.page++; closePin(); renderPage(); } };
+  $("prev").onclick = $("flipPrev").onclick =
+    function () { if (state.page > 1) { state.page--; closePin(); renderPage(); } };
+  $("next").onclick = $("flipNext").onclick =
+    function () { if (state.page < state.pages) { state.page++; closePin(); renderPage(); } };
   $("zoomin").onclick = function () { state.scale = Math.min(3, state.scale + 0.25); renderPage(); };
   $("zoomout").onclick = function () { state.scale = Math.max(0.5, state.scale - 0.25); renderPage(); };
 
@@ -819,6 +895,77 @@
     saveCard(card);
   }
 
+  /*
+   * AI에게 직접 묻기
+   *
+   * 지금 보고 있는 쪽을 이미지로 같이 보낸다. 수업 중에 나오는 질문은
+   * 대개 "이거 뭐야"라서, 화면을 안 보여주면 답이 겉돈다.
+   * 오려내기와 달리 PDF에 붙일 자리가 없으므로 메모 제안은 하지 않는다.
+   */
+  async function askQuestion(text) {
+    var card = {
+      id: "q" + Date.now(),
+      page: state.page,
+      qna: true,
+      question: text,
+      summary: "",
+      pending: true
+    };
+    state.cards.push(card);
+    renderCards();
+    $("cards").scrollTop = $("cards").scrollHeight;
+
+    var content = [];
+    try {
+      // 화면 전체를 그대로 보내면 크므로 폭을 줄인다
+      var shot = cropImage(
+        { x: 0, y: 0, w: state.viewport.width / state.dpr, h: state.viewport.height / state.dpr },
+        1100
+      );
+      content.push({
+        type: "image",
+        source: { type: "base64", media_type: "image/jpeg", data: shot.toDataURL("image/jpeg", 0.8).split(",")[1] }
+      });
+    } catch (e) { /* 이미지가 안 잡혀도 질문은 보낸다 */ }
+
+    var ctx = recentContext();
+    content.push({
+      type: "text",
+      text:
+        "대학 강의자료 " + card.page + "쪽 화면입니다.\n" +
+        (ctx ? "직전에 오려낸 것들: " + ctx + "\n" : "") +
+        "\n학생 질문: " + text + "\n\n" +
+        "한국어로, 수업 중에 읽을 것이므로 짧고 구체적으로 답하세요. 6줄 이내. " +
+        "자료에 없는 내용이면 그렇다고 먼저 말하세요."
+    });
+
+    try {
+      card.summary = await callClaude([{ role: "user", content: content }]);
+      setStatus("");
+    } catch (err) {
+      card.summary = "답을 받아오지 못했습니다.";
+      card.failed = true;
+      setStatus(String(err.message || err), true);
+    }
+    card.pending = false;
+    renderCards();
+    saveCard(card);
+  }
+
+  function sendQuestion() {
+    var el = $("q");
+    var text = el.value.trim();
+    if (!text || !state.pdf) return;
+    el.value = "";
+    askQuestion(text);
+  }
+
+  $("qsend").onclick = sendQuestion;
+  $("q").addEventListener("keydown", function (e) {
+    if (e.key === "Enter") { e.preventDefault(); sendQuestion(); }
+    e.stopPropagation();      // 좌우 화살표가 페이지를 넘기지 않게
+  });
+
   /* ---------- 카드 ---------- */
 
   function renderCards() {
@@ -828,18 +975,20 @@
     $("count").textContent = list.length ? list.length + "장" : "";
 
     if (!list.length) {
-      box.innerHTML = '<div class="hint">아직 오려낸 것이 없습니다.<br />PDF 위에서 드래그해 보세요.<br />빈 곳을 두 번 누르면 직접 메모를 쓸 수 있습니다.</div>';
+      box.innerHTML = '<div class="hint">아직 오려낸 것이 없습니다.<br />PDF 위에서 드래그해 보세요.<br />빈 곳을 두 번 누르면 직접 메모를 쓸 수 있고,<br />메모는 끌어서 옮길 수 있습니다.<br />아래 칸에 바로 물어봐도 됩니다.</div>';
       return;
     }
 
     list.forEach(function (card) {
       var el = document.createElement("div");
-      el.className = "card";
+      el.className = "card" + (card.qna ? " qna" : "");
 
-      var img = document.createElement("img");
-      img.src = card.img;
-      img.alt = card.page + "쪽에서 오려낸 부분";
-      el.appendChild(img);
+      if (!card.qna) {                      // 질문 카드는 오려낸 그림이 없다
+        var img = document.createElement("img");
+        img.src = card.img;
+        img.alt = card.page + "쪽에서 오려낸 부분";
+        el.appendChild(img);
+      }
 
       var body = document.createElement("div");
       body.className = "cardbody";
@@ -847,13 +996,13 @@
       var meta = document.createElement("div");
       meta.className = "cardmeta";
       var pg = document.createElement("span");
-      pg.textContent = card.page + "쪽";
+      pg.textContent = card.page + "쪽" + (card.qna ? " · 질문" : "");
 
       var acts = document.createElement("span");
       acts.style.display = "flex";
       acts.style.gap = "6px";
 
-      if (!card.pending && !card.failed && !card.editing) {
+      if (!card.pending && !card.failed && !card.editing && !card.qna) {
         var ed = document.createElement("button");
         ed.textContent = "고치기";
         ed.onclick = function () { card.editing = true; renderCards(); };
@@ -934,9 +1083,18 @@
         return;
       }
 
+      if (card.qna) {
+        var q = document.createElement("div");
+        q.className = "qtext";
+        q.textContent = "“" + card.question + "”";
+        body.appendChild(q);
+      }
+
       var txt = document.createElement("div");
       txt.className = "cardtext" + (card.pending ? " loading" : "");
-      txt.textContent = card.pending ? "정리하는 중…" : card.summary;
+      txt.textContent = card.pending
+        ? (card.qna ? "답하는 중…" : "정리하는 중…")
+        : card.summary;
       body.appendChild(txt);
 
       if (card.detail) {
@@ -948,7 +1106,7 @@
         body.appendChild(det);
       }
 
-      if (!card.pending && !card.failed) {
+      if (!card.pending && !card.failed && !card.qna) {
         if (!card.detail) {
           var more = document.createElement("div");
           more.className = "more";
@@ -995,10 +1153,13 @@
         var rb = document.createElement("button");
         rb.textContent = "다시 시도";
         rb.onclick = function () {
+          var q = card.qna ? card.question : null;
           state.cards = state.cards.filter(function (c) { return c !== card; });
           deleteCard(card);
           renderCards();
-          setStatus("같은 부분을 다시 그어 주세요.");
+          // 질문은 내용이 남아 있으니 바로 다시 보낼 수 있다. 오려낸 건 그림이 필요하다
+          if (q) askQuestion(q);
+          else setStatus("같은 부분을 다시 그어 주세요.");
         };
         retry.appendChild(rb);
         body.appendChild(retry);
@@ -1032,14 +1193,67 @@
       pin.className = "pin" + (card.manual ? " manual" : "");
       pin.textContent = card.manual ? "쓴" : "메";
       pin.title = card.memo || "빈 메모";
-      var left = (card.rect.x + card.rect.w) * W + (card.manual ? 0 : 6);
-      if (left > W - 26) left = W - 26;
+
+      // 손으로 옮긴 자리가 있으면 그걸 쓰고, 없으면 오려낸 영역 오른쪽에 붙인다
+      var left, top;
+      if (card.pin) {
+        left = card.pin.x * W;
+        top = card.pin.y * H;
+      } else {
+        left = (card.rect.x + card.rect.w) * W + (card.manual ? 0 : 6);
+        if (left > W - 26) left = W - 26;
+        top = card.rect.y * H;
+      }
       pin.style.left = left + "px";
-      pin.style.top = card.rect.y * H + "px";
-      pin.onclick = function (e) {
-        e.stopPropagation();
-        openPin(card, pin);
-      };
+      pin.style.top = top + "px";
+
+      /*
+       * 핀 끌어 옮기기
+       *
+       * 옮겨도 card.rect(오려낸 영역)는 건드리지 않고 card.pin에 따로 적는다.
+       * rect를 움직이면 내보낸 PDF의 강조 네모와 카드 썸네일의 기준까지 틀어진다.
+       *
+       * 클릭과 드래그를 나누는 기준은 "움직였는가"다. 손이 조금 떨려도
+       * 열림이 막히지 않도록 3px까지는 클릭으로 친다.
+       */
+      var drag = null;
+      pin.addEventListener("pointerdown", function (e) {
+        e.stopPropagation();        // 레이어의 영역 선택이 시작되지 않게
+        pin.setPointerCapture(e.pointerId);
+        var r = state.layer.getBoundingClientRect();
+        drag = {
+          dx: e.clientX - r.left - parseFloat(pin.style.left),
+          dy: e.clientY - r.top - parseFloat(pin.style.top),
+          moved: false
+        };
+        closePin();
+      });
+
+      pin.addEventListener("pointermove", function (e) {
+        if (!drag) return;
+        var r = state.layer.getBoundingClientRect();
+        var x = e.clientX - r.left - drag.dx;
+        var y = e.clientY - r.top - drag.dy;
+        if (Math.abs(x - parseFloat(pin.style.left)) > 3 ||
+            Math.abs(y - parseFloat(pin.style.top)) > 3) drag.moved = true;
+        // 페이지 밖으로 나가면 다시 잡을 수 없다
+        x = Math.max(0, Math.min(x, W - 26));
+        y = Math.max(0, Math.min(y, H - 26));
+        pin.style.left = x + "px";
+        pin.style.top = y + "px";
+      });
+
+      pin.addEventListener("pointerup", function () {
+        if (!drag) return;
+        var wasMoved = drag.moved;
+        drag = null;
+        if (!wasMoved) { openPin(card, pin); return; }
+        card.pin = { x: parseFloat(pin.style.left) / W, y: parseFloat(pin.style.top) / H };
+        saveCard(card);
+      });
+
+      pin.addEventListener("pointercancel", function () { drag = null; });
+
       state.layer.appendChild(pin);
     });
   }
@@ -1198,6 +1412,10 @@
         byPage[pg].forEach(function (c) {
           if (c.manual) {
             lines.push("- (직접 쓴 메모) " + (c.memo || ""));
+          } else if (c.qna) {
+            lines.push("### Q. " + (c.question || ""));
+            lines.push("");
+            lines.push(c.summary || "");
           } else {
             lines.push("### " + (c.memo || "오려낸 부분"));
             lines.push("");
@@ -1396,8 +1614,22 @@
         var taken = takenByPage[card.page] = takenByPage[card.page] || [];
         if (!(card.page in textByPage)) textByPage[card.page] = await textBoxes(card.page);
 
-        var hard = (selByPage[card.page] || []).concat(taken);
-        var at = placeMemo(sel, memo.w, memo.h, pw, ph, hard, textByPage[card.page]);
+        var at;
+        if (card.pin) {
+          /*
+           * 손으로 옮긴 자리가 있으면 자동 배치보다 그쪽을 따른다.
+           * 일부러 옮겼는데 내보낼 때 딴 데로 가면 그게 더 당황스럽다.
+           * 페이지 밖으로만 안 나가게 잡아준다.
+           */
+          var m = MEMO_MARGIN;
+          at = {
+            x: Math.max(m, Math.min(card.pin.x * pw, pw - memo.w - m)),
+            y: Math.max(m, Math.min(ph - card.pin.y * ph - memo.h, ph - memo.h - m))
+          };
+        } else {
+          var hard = (selByPage[card.page] || []).concat(taken);
+          at = placeMemo(sel, memo.w, memo.h, pw, ph, hard, textByPage[card.page]);
+        }
 
         pg.drawImage(png, { x: at.x, y: at.y, width: memo.w, height: memo.h });
         taken.push({ x: at.x, y: at.y, w: memo.w, h: memo.h });
