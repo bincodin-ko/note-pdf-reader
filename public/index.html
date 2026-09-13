@@ -1395,30 +1395,54 @@
       bindSelection(ly);
     }
 
-    state.canvas.width = vp.width;
-    state.canvas.height = vp.height;
-    state.canvas.style.width = vp.width / dpr + "px";
-    state.canvas.style.height = vp.height / dpr + "px";
-    wrap.style.width = vp.width / dpr + "px";
+    /*
+     * 캔버스 화소 수는 정수다. vp.width/height는 소수라서 그대로 비교하면
+     * 미리 그려 둔 쪽을 두고도 늘 "없다"가 나온다(606 !== 606.87). 캐시가
+     * 가득 차 있는데도 넘길 때마다 새로 그리던 이유였다. 여기서 한 번만
+     * 정수로 정하고, 그리는 쪽도 비교하는 쪽도 이 값을 쓴다.
+     */
+    var cw = Math.round(vp.width), ch = Math.round(vp.height);
 
     if (state.renderTask) { try { state.renderTask.cancel(); } catch (e) {} }
 
-    var hit = cacheValid() ? cache.map[state.page] : null;
-    if (hit && hit.width === vp.width && hit.height === vp.height) {
-      // 미리 그려 둔 게 있다 — 옮겨 붙이기만 한다
-      state.canvas.getContext("2d").drawImage(hit, 0, 0);
-    } else {
-      state.renderTask = page.render({ canvasContext: state.canvas.getContext("2d"), viewport: vp });
+    var want = state.page;
+    var hit = cacheValid() ? cache.map[want] : null;
+    if (!hit || hit.width !== cw || hit.height !== ch) {
+      /*
+       * 화면 밖에서 그린 뒤 옮겨 붙인다.
+       *
+       * 보이는 캔버스에 바로 그리면 크기를 맞추는 순간 내용이 지워져서, 다
+       * 그릴 때까지 흰 종이가 보인다. 밖에서 그리면 그동안 앞 쪽이 그대로
+       * 남아 있다가 한 번에 바뀐다 — 노트 앱이 그렇게 보이는 이유다.
+       */
+      var off = document.createElement("canvas");
+      off.width = cw; off.height = ch;
+      var scaleAtRender = state.scale;
+      state.renderTask = page.render({ canvasContext: off.getContext("2d"), viewport: vp });
       try { await state.renderTask.promise; } catch (e) { return; }
-      if (!cacheValid()) { cacheReset(); cache.scale = state.scale; cache.dpr = dpr; }
-      if (!cache.map[state.page]) {
-        var keep = document.createElement("canvas");
-        keep.width = vp.width; keep.height = vp.height;
-        keep.getContext("2d").drawImage(state.canvas, 0, 0);
-        cache.map[state.page] = keep;
-        cache.px += keep.width * keep.height;
+
+      // 그리는 사이 배율이 바뀌었다면 이 그림은 지금 캐시와 맞지 않는다
+      if (state.scale === scaleAtRender && dpr === state.dprUsed) {
+        if (!cacheValid()) { cacheReset(); cache.scale = scaleAtRender; cache.dpr = dpr; }
+        if (!cache.map[want]) {
+          cache.map[want] = off;
+          cache.px += cw * ch;
+          cacheEvict();
+        }
       }
+      if (state.page !== want) return;          // 더 넘겼으면 화면은 뒤에 온 쪽이 맡는다
+      hit = off;
     }
+
+    // 지우기와 붙이기를 한 숨에 한다. 사이에 한 번이라도 쉬면 흰 화면이 비친다
+    if (state.canvas.width !== cw) state.canvas.width = cw;
+    if (state.canvas.height !== ch) state.canvas.height = ch;
+    state.canvas.style.width = cw / dpr + "px";
+    state.canvas.style.height = ch / dpr + "px";
+    wrap.style.width = cw / dpr + "px";
+    var vis = state.canvas.getContext("2d");
+    vis.clearRect(0, 0, cw, ch);
+    vis.drawImage(hit, 0, 0);
 
     $("pageIn").value = state.page;
     $("pageTotal").textContent = state.pages;
@@ -1502,7 +1526,7 @@
     var pg = await state.pdf.getPage(n);
     var vp = pg.getViewport({ scale: scale * dpr });
     var cv = document.createElement("canvas");
-    cv.width = vp.width; cv.height = vp.height;
+    cv.width = Math.round(vp.width); cv.height = Math.round(vp.height);
     await pg.render({ canvasContext: cv.getContext("2d"), viewport: vp }).promise;
     // 그리는 사이 배율이 바뀌었으면 버린다
     if (scale !== state.scale || dpr !== state.dprUsed) return null;
