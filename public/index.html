@@ -124,6 +124,54 @@
     cursor: pointer;
     user-select: none;
   }
+
+  /* 자동 넣기 고르기 — 접힌 버튼 하나 + 누를 때만 펴지는 목록 */
+  .autow { position: relative; flex: 0 0 auto; }
+  .autobtn { font-size: 12.5px; padding: 6px 11px; color: var(--muted); }
+  .autobtn b { color: var(--marker); font-weight: 600; }
+  .autobtn.on { border-color: rgba(255, 216, 61, 0.5); }
+  .autopop {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 6px);
+    z-index: 20;
+    width: 236px;
+    padding: 8px;
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    background: var(--ink-2);
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5);
+  }
+  .autopop.gone { display: none; }
+  .aphead { font-size: 11.5px; color: var(--muted); padding: 2px 4px 7px; }
+  .aplist { display: flex; flex-direction: column; gap: 3px; }
+  .aplist button {
+    text-align: left;
+    font-size: 12.5px;
+    padding: 6px 9px;
+    border-radius: 6px;
+    background: transparent;
+    border-color: transparent;
+  }
+  .aplist button:hover { background: var(--ink-3); }
+  .aplist button.on {
+    background: var(--ink-3);
+    border-color: rgba(255, 216, 61, 0.5);
+    color: var(--marker);
+  }
+  .apfree { display: flex; gap: 5px; margin-top: 8px; }
+  .apfree input {
+    flex: 1;
+    min-width: 0;
+    font: inherit;
+    font-size: 12px;
+    color: var(--text);
+    background: var(--ink);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 6px 8px;
+  }
+  .apfree button { font-size: 12px; padding: 6px 9px; flex: 0 0 auto; }
   .toggle input { accent-color: var(--marker); width: 15px; height: 15px; }
 
   .main {
@@ -676,13 +724,25 @@
   .boxsel .bh.ne { right: -6px; top: -6px; cursor: nesw-resize; }
   .boxsel .bh.sw { left: -6px; bottom: -6px; cursor: nesw-resize; }
   .boxsel .bh.se { right: -6px; bottom: -6px; cursor: nwse-resize; }
-  .boxsel .bdel {
+  /*
+   * .pagewrap이 line-height:0이라(캔버스 아래 빈 틈을 없애려고) 이 버튼의
+   * 글줄도 0이 돼 납작하게 잘렸다. 여기서 다시 세워 준다.
+   */
+  /*
+   * 이 버튼은 테두리(.boxsel) 안이 아니라 층 바로 밑에 둔다.
+   * .boxsel이 z-index를 가지고 있어 그 안에 넣으면 메모 밑에 깔려 못 누른다.
+   * 자리는 테두리 오른쪽 위 모서리에 맞춘다(translateX로 오른쪽 끝 정렬).
+   */
+  .bdel {
     position: absolute;
-    right: -1px;
-    top: -23px;
+    z-index: 6;
+    transform: translateX(-100%);
     font-size: 11px;
+    /* .pagewrap이 line-height:0이라 여기서 글줄을 다시 세워야 납작해지지 않는다 */
+    line-height: 1.35;
     padding: 2px 7px;
     border-radius: 4px;
+    white-space: nowrap;
   }
 
   .hlmark {
@@ -768,10 +828,23 @@
   <button id="zoomout" disabled>축소</button>
   <button id="zoomin" disabled>확대</button>
   <div class="spacer"></div>
-  <label class="toggle">
-    <input type="checkbox" id="auto" />
-    이번 수업은 묻지 말고 자동으로 넣기
-  </label>
+  <!--
+    자동 넣기는 버튼 하나로 접어 둔다. 수업 중에 쓰는 도구라 위 줄이
+    길어지면 그만큼 자료 볼 자리가 줄어든다.
+  -->
+  <div class="autow">
+    <button class="autobtn" id="autoBtn" title="오려내면 묻지 않고 바로 이 방식으로 정리해 붙입니다">
+      자동 넣기 <b id="autoWhat">끔</b>
+    </button>
+    <div class="autopop gone" id="autoPop">
+      <div class="aphead">오려내면 바로…</div>
+      <div class="aplist" id="apList"></div>
+      <div class="apfree">
+        <input id="autoFree" type="text" maxlength="120" placeholder="직접 쓴 요청으로" />
+        <button id="autoFreeGo">쓰기</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <div class="main">
@@ -816,7 +889,7 @@
         <option value="all">전체 쪽</option>
         <option value="page">이 쪽만</option>
       </select>
-      <button id="expPdf" disabled>메모 넣은 PDF</button>
+      <button id="expPdf" disabled>페이지 추출</button>
       <label class="burn" title="메모를 페이지에 그림처럼 그려 넣습니다. 주석을 안 그리는 뷰어에서도 보이지만, 구운 파일은 이 앱에서 다시 고칠 수 없습니다">
         <input type="checkbox" id="expBurn" disabled />
         메모를 그림으로 굽기 (모든 뷰어에서 보임 · 다시 고칠 수 없음)
@@ -1468,18 +1541,18 @@
    * 되살린 카드에는 썸네일이 없다 (파일을 가볍게 하려고 안 심었다).
    * 지금 그린 쪽에 해당하는 것만 다시 잘라 채운다.
    */
-  function refillThumbs() {
+  async function refillThumbs() {
     var changed = false;
-    state.cards.forEach(function (c) {
-      if (c.img || c.qna || c.manual || c.page !== state.page) return;
-      if (!c.rect || !(c.rect.w > 0)) return;
-      var W = state.viewport.width / state.dprUsed, H = state.viewport.height / state.dprUsed;
+    for (var i = 0; i < state.cards.length; i++) {
+      var c = state.cards[i];
+      if (c.img || c.qna || c.manual || c.page !== state.page) continue;
+      if (!c.rect || !(c.rect.w > 0)) continue;
       try {
-        c.img = cropImage({ x: c.rect.x * W, y: c.rect.y * H, w: c.rect.w * W, h: c.rect.h * H }, 560)
-                  .toDataURL("image/jpeg", 0.72);
+        c.img = shrinkTo(await cropFromPdf(c.page, c.rect, 1600), 560)
+                  .toDataURL("image/jpeg", 0.8);
         changed = true;
-      } catch (e) {}
-    });
+      } catch (e) { /* 못 만들면 그림 없이 둔다 */ }
+    }
     if (changed) renderCards();
   }
 
@@ -1690,6 +1763,51 @@
 
   /* ---------- 잘라내기 + 텍스트 뽑기 ---------- */
 
+  /*
+   * 오려낸 자리를 PDF에서 다시, 크게 그려 온다.
+   *
+   * 화면 캔버스에서 잘라 쓰면 창에 맞춘 배율 그대로다. A4 원본을 창에 맞추면
+   * 한 줄 글자가 열몇 화소밖에 안 되므로, 그걸 잘라 정리 PDF에 키워 넣으면
+   * 뭉개져 보였다. 원본은 벡터니까 필요한 만큼 배율을 올려 다시 그리면
+   * 화면 배율과 상관없이 선명하다.
+   */
+  var CROP_MAX_PX = 6e6;                   // 너무 키우면 메모리만 먹는다
+  async function cropFromPdf(pageNo, r, targetW) {
+    var pg = await state.pdf.getPage(pageNo);
+    var v1 = pg.getViewport({ scale: 1 });
+    var wpt = Math.max(1, r.w * v1.width);
+    var hpt = Math.max(1, r.h * v1.height);
+    var scale = Math.max(1, Math.min(8, (targetW || 1400) / wpt));
+    var px = (wpt * scale) * (hpt * scale);
+    if (px > CROP_MAX_PX) scale *= Math.sqrt(CROP_MAX_PX / px);
+
+    var vp = pg.getViewport({ scale: scale });
+    var cv = document.createElement("canvas");
+    cv.width = Math.max(1, Math.round(r.w * vp.width));
+    cv.height = Math.max(1, Math.round(r.h * vp.height));
+    var g = cv.getContext("2d");
+    g.fillStyle = "#fff";                  // 빈 곳이 투명하면 JPEG에서 까맣게 나온다
+    g.fillRect(0, 0, cv.width, cv.height);
+    // 오려낼 자리가 원점에 오도록 밀어 두고 그 쪽 전체를 그린다
+    await pg.render({
+      canvasContext: g,
+      viewport: vp,
+      transform: [1, 0, 0, 1, -r.x * vp.width, -r.y * vp.height]
+    }).promise;
+    return cv;
+  }
+
+  function shrinkTo(cv, maxW) {
+    if (cv.width <= maxW) return cv;
+    var out = document.createElement("canvas");
+    out.width = maxW;
+    out.height = Math.max(1, Math.round(cv.height * maxW / cv.width));
+    var g = out.getContext("2d");
+    g.imageSmoothingQuality = "high";
+    g.drawImage(cv, 0, 0, out.width, out.height);
+    return out;
+  }
+
   function cropImage(rect, maxW) {
     var d = state.dprUsed;
     var sx = rect.x * d, sy = rect.y * d, sw = rect.w * d, sh = rect.h * d;
@@ -1788,38 +1906,106 @@
       how: "이 부분에 나오는 용어만 뽑아 '용어 — 뜻' 형식으로 한 줄씩 적으세요." }
   ];
 
+  /*
+   * 자동 넣기 — 켜고 끄는 것만이 아니라 "무엇으로" 정리할지까지 고른다.
+   *
+   * 전에는 켜면 늘 핵심만 정리로 갔다. 그런데 수업마다 필요한 게 다르다.
+   * 이번 수업은 시험 포인트만, 다음 수업은 용어 풀이만 — 그걸 미리 정해 두고
+   * 오려내기만 하면 되게 했다. 수업이 끝나면 잊어도 되는 설정이라 저장하지
+   * 않는다("이번 수업은"이라는 말 그대로다).
+   */
+  state.auto = null;                       // null이면 오려낸 뒤 묻고 고른다
+
+  function autoLabel() {
+    if (!state.auto) return "끔";
+    if (state.auto.mode) return state.auto.mode.label;
+    var t = state.auto.free || "";
+    return t.length > 10 ? t.slice(0, 10) + "…" : t;
+  }
+
+  function renderAuto() {
+    $("autoWhat").textContent = autoLabel();
+    $("autoBtn").classList.toggle("on", !!state.auto);
+    $("autoBtn").title = state.auto
+      ? "오려내면 묻지 않고 바로 " + (state.auto.mode ? state.auto.mode.label : "\u0027" + state.auto.free + "\u0027") + "(으)로 정리해 붙입니다"
+      : "오려내면 무엇을 시킬지 고르게 합니다";
+    Array.prototype.forEach.call($("apList").children, function (b) {
+      b.classList.toggle("on",
+        (!state.auto && b.dataset.m === "off") ||
+        !!(state.auto && state.auto.mode && state.auto.mode.id === b.dataset.m));
+    });
+  }
+
+  function closeAuto() { $("autoPop").classList.add("gone"); }
+
+  (function buildAuto() {
+    var list = $("apList");
+    function item(id, label, pick) {
+      var b = document.createElement("button");
+      b.dataset.m = id;
+      b.textContent = label;
+      b.onclick = function () { pick(); renderAuto(); closeAuto(); };
+      list.appendChild(b);
+    }
+    item("off", "묻고 고르기", function () { state.auto = null; });
+    ASK_MODES.forEach(function (m) {
+      item(m.id, m.label, function () { state.auto = { mode: m }; });
+    });
+
+    $("autoBtn").onclick = function (e) {
+      e.stopPropagation();
+      $("autoPop").classList.toggle("gone");
+    };
+    $("autoPop").addEventListener("click", function (e) { e.stopPropagation(); });
+    document.addEventListener("click", closeAuto);
+
+    $("autoFreeGo").onclick = function () {
+      var t = $("autoFree").value.trim();
+      if (!t) { setStatus("무엇을 시킬지 적어 주세요."); return; }
+      state.auto = { free: t };
+      renderAuto(); closeAuto();
+    };
+    $("autoFree").addEventListener("keydown", function (e) {
+      e.stopPropagation();                 // Delete·Ctrl+Z 단축키가 끼어들지 않게
+      if (e.key === "Enter") { e.preventDefault(); $("autoFreeGo").onclick(); }
+    });
+
+    renderAuto();
+  })();
+
   // 오려낸 원본 그림과 원문은 카드에 넣지 않는다. 저장소에 들어가면 무겁다
   var pendingCrops = {};
 
   async function capture(rect) {
-    var full = cropImage(rect, 1400);
-    var thumb = cropImage(rect, 560);
+    var W = state.viewport.width / state.dprUsed, H = state.viewport.height / state.dprUsed;
+    var r01 = { x: rect.x / W, y: rect.y / H, w: rect.w / W, h: rect.h / H };
+
+    // 원본에서 크게 다시 그려 온다. 못 하면 화면에서 잘라 쓴다
+    var hi = null;
+    try { hi = await cropFromPdf(state.page, r01, 1600); } catch (e) {}
+    var full = hi || cropImage(rect, 1400);
+    var thumb = hi ? shrinkTo(hi, 560) : cropImage(rect, 560);
     var id = "c" + Date.now();
 
     var card = {
       id: id,
       page: state.page,
-      img: thumb.toDataURL("image/jpeg", 0.72),
-      rect: {
-        x: rect.x / (state.viewport.width / state.dprUsed),
-        y: rect.y / (state.viewport.height / state.dprUsed),
-        w: rect.w / (state.viewport.width / state.dprUsed),
-        h: rect.h / (state.viewport.height / state.dprUsed)
-      },
+      img: thumb.toDataURL("image/jpeg", 0.8),
+      rect: r01,
       memo: "", summary: "", detail: "",
       inserted: false,
       awaiting: true                       // 무엇을 시킬지 아직 안 골랐다
     };
 
     pendingCrops[id] = {
-      b64: full.toDataURL("image/jpeg", 0.85).split(",")[1],
+      b64: full.toDataURL("image/jpeg", 0.9).split(",")[1],
       text: await textInRect(rect)
     };
 
     state.cards.push(card);
     renderCards();
 
-    if ($("auto").checked) runCard(card, ASK_MODES[0]);
+    if (state.auto) runCard(card, state.auto.mode || null, state.auto.free || "");
   }
 
   async function runCard(card, mode, free) {
@@ -1870,7 +2056,7 @@
     renderCards();
     saveCard(card);
 
-    if (!card.failed && $("auto").checked) {
+    if (!card.failed && state.auto) {
       card.inserted = true;
       if (!card.box && card.rect && card.rect.w > 0) {
         card.box = { x: card.rect.x, y: card.rect.y, w: card.rect.w, h: card.rect.h };
@@ -2452,7 +2638,7 @@
    */
   function drawBoxes() {
     if (!state.layer || !state.viewport) return;
-    Array.prototype.forEach.call(state.layer.querySelectorAll(".boxsel"), function (b) { b.remove(); });
+    Array.prototype.forEach.call(state.layer.querySelectorAll(".boxsel, .bdel"), function (b) { b.remove(); });
 
     var W = state.viewport.width / state.dprUsed;
     var H = state.viewport.height / state.dprUsed;
@@ -2462,11 +2648,19 @@
 
       var el = document.createElement("div");
       el.className = "boxsel";
+      var del = null;                      // 아래에서 만든다. place가 먼저 볼 수 있게 여기 둔다
       function place() {
-        el.style.left = (card.box.x * W) + "px";
-        el.style.top = (card.box.y * H) + "px";
-        el.style.width = (card.box.w * W) + "px";
+        var bx = card.box.x * W, by = card.box.y * H, bw = card.box.w * W;
+        el.style.left = bx + "px";
+        el.style.top = by + "px";
+        el.style.width = bw + "px";
         el.style.height = (card.box.h * H) + "px";
+        if (del) {
+          // 종이 맨 위에 그은 테두리는 버튼이 종이 밖으로 나간다 — 그때만 안으로
+          var up = by >= 26;
+          del.style.left = (bx + bw - (up ? 1 : 3)) + "px";
+          del.style.top = (up ? by - 24 : by + 3) + "px";
+        }
       }
       place();
       el.title = "끌어서 옮기고, 모서리로 크기를 맞춥니다";
@@ -2478,7 +2672,7 @@
         el.appendChild(hd);
       });
 
-      var del = document.createElement("button");
+      del = document.createElement("button");
       del.className = "bdel";
       del.textContent = "테두리 빼기";
       del.onclick = function (e) {
@@ -2492,7 +2686,8 @@
         });
       };
       del.addEventListener("pointerdown", function (e) { e.stopPropagation(); });
-      el.appendChild(del);
+      state.layer.appendChild(del);
+      place();                             // 버튼이 생긴 뒤라야 자리를 잡을 수 있다
 
       var drag = null;
       el.addEventListener("pointerdown", function (e) {
@@ -3077,7 +3272,7 @@
    */
   async function buildSummaryPdf(cards) {
     var PW = 595.28, PH = 841.89, M = 44, CW = PW - M * 2;
-    var K = 2.5;                                  // 캔버스 배율. 인쇄해도 뭉개지지 않게
+    var K = 3;                                    // 캔버스 배율. 인쇄해도 뭉개지지 않게
     var mc = document.createElement("canvas").getContext("2d");
 
     function font(sz, bold) { return (bold ? "600 " : "") + sz + "px sans-serif"; }
@@ -3093,11 +3288,21 @@
       return lines;
     }
 
-    // 그림을 먼저 다 읽어 둔다. 크기를 알아야 자리를 잡을 수 있다
+    /*
+     * 그림을 먼저 다 읽어 둔다. 크기를 알아야 자리를 잡을 수 있다.
+     *
+     * 카드에 들고 있는 그림은 목록에 쓰는 작은 것(가로 560)이라, 이 종이에
+     * 가로 507pt로 키워 넣으면 뭉개진다. 그래서 내보낼 때 원본에서 다시,
+     * 이 종이에 필요한 크기로 그려 온다. 원본이 없으면 들고 있던 것을 쓴다.
+     */
     var imgs = {};
-    await Promise.all(cards.map(function (c) {
-      return new Promise(function (res) {
-        if (!c.img) return res();
+    await Promise.all(cards.map(async function (c) {
+      if (!c.qna && state.pdf && c.rect && c.rect.w > 0 && c.page >= 1 && c.page <= state.pages) {
+        try { imgs[c.id] = await cropFromPdf(c.page, c.rect, Math.round(CW * K)); return; }
+        catch (e) { /* 아래에서 들고 있던 그림으로 간다 */ }
+      }
+      if (!c.img) return;
+      await new Promise(function (res) {
         var im = new Image();
         im.onload = function () { imgs[c.id] = im; res(); };
         im.onerror = function () { res(); };
@@ -3517,7 +3722,7 @@
       if (!burn) saveCardsIntoPdf(doc, carriedCards, carriedMarks);
 
       var out = await doc.save();
-      showExport("메모 넣은 PDF", {
+      showExport("페이지 추출", {
         note: "메모 " + carriedCards.filter(function (c) { return c.inserted; }).length +
               "개 · " + doc.getPageCount() + "쪽입니다. " +
               (burn
@@ -3621,7 +3826,7 @@
     if (!state.pdf) return;
     if (e.key === "ArrowLeft") $("prev").click();
     if (e.key === "ArrowRight") $("next").click();
-    if (e.key === "Escape") { state.selMark = null; drawMarks(); closeMemoEdit(); }
+    if (e.key === "Escape") { state.selMark = null; drawMarks(); closeMemoEdit(); closeAuto(); }
     if (e.key === "Delete" || e.key === "Backspace") {
       // 글을 치는 중에는 건드리지 않는다
       var t = e.target && e.target.tagName;
