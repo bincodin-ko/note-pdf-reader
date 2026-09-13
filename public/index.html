@@ -938,8 +938,28 @@
 (function () {
   "use strict";
 
-  pdfjsLib.GlobalWorkerOptions.workerSrc =
-    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  var PDFJS_BASE = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/";
+  pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_BASE + "pdf.worker.min.js";
+
+  /*
+   * 한글 PDF에서 글자를 읽으려면 CMap이 있어야 한다.
+   *
+   * 한글 자료는 글꼴 인코딩이 /UniKS-UTF16-H 같은 "미리 정해진 CMap"인 일이
+   * 흔하다. pdf.js는 그 표를 따로 받아야 글자를 풀 수 있는데, 안 주면 조용히
+   * 빈 글을 돌려준다 — 크롬에서는 잘 긁히는 자료가 여기서는 "글자를 읽어낼 수
+   * 없습니다"로 나오던 이유다(크롬의 PDF 엔진은 그 표를 안고 있다).
+   * standard_fonts는 글꼴이 안 박힌 PDF의 모양을 제대로 그리기 위한 것이다.
+   */
+  var PDF_OPTS = {
+    cMapUrl: PDFJS_BASE + "cmaps/",
+    cMapPacked: true,
+    standardFontDataUrl: PDFJS_BASE + "standard_fonts/"
+  };
+  function pdfSource(data) {
+    var o = { data: data };
+    for (var k in PDF_OPTS) o[k] = PDF_OPTS[k];
+    return o;
+  }
 
   var $ = function (id) { return document.getElementById(id); };
 
@@ -1346,6 +1366,19 @@
     state.marks.push(mark);
     saveMarks();
     drawMarks();
+
+    /*
+     * 방금 칠한 것도 되돌릴 수 있어야 한다.
+     * 지우는 것만 되돌릴 수 있고 칠하는 건 안 됐다 — 잘못 그었을 때 Ctrl+Z가
+     * 안 먹는 게 이것이다.
+     */
+    offerUndo("형광펜을 칠했습니다.", function () {
+      state.marks = state.marks.filter(function (m) { return m !== mark; });
+      state.selMark = null;
+      saveMarks();
+      drawMarks();
+      setStatus("되돌렸습니다.");
+    });
   }
 
   function penOf(id) {
@@ -1470,7 +1503,7 @@
 
       var buf = await f.arrayBuffer();
       state.bytes = buf.slice(0);                       // pdf.js가 원본을 가져가므로 사본 보관
-      state.pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+      state.pdf = await pdfjsLib.getDocument(pdfSource(buf)).promise;
 
       /*
        * 우리가 내보낸 PDF라면 메모를 되살린다.
@@ -1484,7 +1517,7 @@
         var cleaned = await stripMemoAnnots(state.bytes);
         if (cleaned) {
           state.bytes = cleaned.slice(0);
-          state.pdf = await pdfjsLib.getDocument({ data: cleaned }).promise;
+          state.pdf = await pdfjsLib.getDocument(pdfSource(cleaned)).promise;
         }
       }
 
@@ -1884,6 +1917,15 @@
       closeMemoEdit();
       card.editingMemo = true;
       drawMemos();
+
+      // 잘못 눌러 생긴 메모도 되돌릴 수 있게 (글 치는 중에는 Ctrl+Z가 글자를 맡는다)
+      offerUndo("메모를 만들었습니다.", function () {
+        closeMemoEdit();
+        state.cards = state.cards.filter(function (c) { return c !== card; });
+        deleteCard(card);
+        drawMemos(); renderCards();
+        setStatus("되돌렸습니다.");
+      });
     });
   }
 
@@ -4365,7 +4407,15 @@
   document.addEventListener("keydown", function (e) {
     if (!(e.ctrlKey || e.metaKey)) return;
 
-    if (e.key === "z" || e.key === "Z") { e.preventDefault(); doUndo(); return; }
+    if (e.key === "z" || e.key === "Z") {
+      // 글을 치는 중이면 브라우저의 글자 되돌리기가 맡는다. 여기서 가로채면
+      // 오타 하나 되돌리려다 방금 만든 메모가 통째로 사라진다
+      var t = e.target;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      e.preventDefault();
+      doUndo();
+      return;
+    }
 
     /*
      * Ctrl+> / Ctrl+< 는 PDF에 붙는 메모 글자 크기다.
