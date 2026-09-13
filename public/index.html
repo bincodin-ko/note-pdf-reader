@@ -277,7 +277,7 @@
     gap: 6px;
     white-space: nowrap;
   }
-  .memoacts button { font-size: 12px; padding: 4px 9px; border-radius: 5px; }
+  .memoacts button { font-size: 12px; line-height: 1.35; padding: 4px 9px; border-radius: 5px; }
 
   .notes {
     /* 폭을 못 늘리게 못 박는다. 긴 글이 들어와도 PDF 영역을 밀지 않게 */
@@ -821,7 +821,7 @@
     <button id="toolHl" disabled>형광펜</button>
   </span>
   <span class="pens" id="pens"></span>
-  <span class="tool" title="PDF에 붙는 메모 글자 크기 (Ctrl+&lt; / Ctrl+&gt;)">
+  <span class="tool" title="메모 글자 크기 (Ctrl+&lt; / Ctrl+&gt;). 메모를 눌러 고치는 중이면 그 메모만, 아니면 기본 크기가 바뀝니다">
     <button id="mfsDown" disabled>메모 가－</button>
     <button id="mfsUp" disabled>메모 가＋</button>
   </span>
@@ -1083,10 +1083,23 @@
   function indexKey() { return "capnote:" + state.docKey + ":index"; }
   function cardKey(id) { return "capnote:" + state.docKey + ":card:" + id; }
 
+  /*
+   * 지금 고치는 중이라는 표시는 저장하지 않는다.
+   * 저장해 두면 다음에 열었을 때 그 메모가 편집칸인 채로 되살아난다.
+   */
+  function slimCard(card) {
+    var o = {};
+    Object.keys(card).forEach(function (k) {
+      if (k === "editing" || k === "editingMemo") return;
+      o[k] = card[k];
+    });
+    return o;
+  }
+
   async function saveCard(card) {
     if (!hasStorage() || !state.docKey) return;
     try {
-      await window.storage.set(cardKey(card.id), JSON.stringify(card));
+      await window.storage.set(cardKey(card.id), JSON.stringify(slimCard(card)));
       await window.storage.set(
         indexKey(),
         JSON.stringify({ name: state.docName, ids: state.cards.map(function (c) { return c.id; }) })
@@ -2552,6 +2565,23 @@
    */
   var MEMO_FS_MIN = 6, MEMO_FS_MAX = 16, MEMO_FS_BASE = 8.5, MEMO_W_BASE = 190;
 
+  /*
+   * 메모 하나의 치수. card.fs가 있으면 그 메모만 그 크기로 간다.
+   * 폭도 같이 늘려야 한 줄에 들어가는 글자 수가 유지된다 — 글자만 키우면
+   * 상자가 세로로만 길어진다.
+   */
+  function memoDims(fs) {
+    var f = fs > 0 ? fs : MEMO.fs;
+    if (f === MEMO.fs) return MEMO;                  // 기본 크기는 만들지 않고 그대로 쓴다
+    return {
+      fs: f,
+      lh: Math.round(f * 1.365 * 10) / 10,
+      w: Math.round(MEMO_W_BASE * f / MEMO_FS_BASE),
+      pad: MEMO.pad,
+      bar: MEMO.bar
+    };
+  }
+
   function applyMemoFs(v, quiet) {
     var fs = Math.max(MEMO_FS_MIN, Math.min(MEMO_FS_MAX, Math.round(v * 2) / 2));
     MEMO.fs = fs;
@@ -2573,6 +2603,30 @@
     applyMemoFs(v >= MEMO_FS_MIN && v <= MEMO_FS_MAX ? v : MEMO_FS_BASE, true);
   })();
 
+  /*
+   * 글자 크기를 올리고 내린다.
+   *
+   * 전에는 크기가 하나뿐이라 한 메모를 키우면 전부 같이 커졌다. 보통은 중요한
+   * 메모 하나만 크게 두고 싶다. 그래서 고치는 중인 메모가 있으면 그 메모만
+   * 바꾸고, 아무것도 안 고치는 중이면 예전처럼 기본 크기를 바꾼다
+   * (앞으로 붙일 메모와, 따로 정하지 않은 메모들이 따라간다).
+   */
+  function bumpMemoFs(step) {
+    var card = memoEditor && memoEditor.card;
+    if (!card) { applyMemoFs(MEMO.fs + step); return; }
+
+    // 다시 그리면 편집칸을 새로 만드니, 치던 글을 먼저 챙긴다
+    if (memoEditor.ta.value !== (card.memo || "")) card.memo = memoEditor.ta.value;
+
+    var cur = card.fs > 0 ? card.fs : MEMO.fs;
+    var v = Math.max(MEMO_FS_MIN, Math.min(MEMO_FS_MAX, Math.round((cur + step) * 2) / 2));
+    if (v === cur) return;
+    card.fs = v;
+    saveCard(card);
+    drawMemos();
+    setStatus("이 메모만 글자 " + v + "pt");
+  }
+
   function ptPx() {                       // 화면에서 1pt가 몇 px인가
     if (!state.viewport || !state.pageW) return 1;
     return (state.viewport.width / state.dprUsed) / state.pageW;
@@ -2583,10 +2637,11 @@
    * 각자 접으면 폰트 계산이 미묘하게 달라져 줄 수가 어긋난다.
    */
   var _measure = null;
-  function memoLines(text) {
+  function memoLines(text, fs) {
+    var d = memoDims(fs);
     if (!_measure) _measure = document.createElement("canvas").getContext("2d");
-    _measure.font = MEMO.fs + "px sans-serif";
-    var max = MEMO.w - MEMO.pad * 2 - MEMO.bar;
+    _measure.font = d.fs + "px sans-serif";
+    var max = d.w - d.pad * 2 - d.bar;
     var lines = [], cur = "";
     String(text == null ? "" : text).split("").forEach(function (ch) {
       if (ch === "\n") { lines.push(cur); cur = ""; return; }
@@ -2597,8 +2652,9 @@
     return lines;
   }
 
-  function memoSize(lines) {
-    return { w: MEMO.w, h: MEMO.pad * 2 + lines.length * MEMO.lh };
+  function memoSize(lines, fs) {
+    var d = memoDims(fs);
+    return { w: d.w, h: d.pad * 2 + lines.length * d.lh };
   }
 
   /*
@@ -2751,8 +2807,9 @@
     state.cards.forEach(function (card) {
       if (!card.inserted || card.page !== state.page) return;
 
-      var lines = memoLines(card.memo || "");
-      var size = memoSize(lines);
+      var dim = memoDims(card.fs);
+      var lines = memoLines(card.memo || "", card.fs);
+      var size = memoSize(lines, card.fs);
       if (!card.pin) card.pin = fallbackPin(card, size);
 
       var el = document.createElement("div");
@@ -2761,10 +2818,10 @@
       el.style.top = (card.pin.y * H) + "px";
       el.style.width = (size.w * k) + "px";
       el.style.height = (size.h * k) + "px";
-      el.style.padding = (MEMO.pad * k) + "px";
-      el.style.borderLeftWidth = (MEMO.bar * k) + "px";
-      el.style.fontSize = (MEMO.fs * k) + "px";
-      el.style.lineHeight = (MEMO.lh * k) + "px";
+      el.style.padding = (dim.pad * k) + "px";
+      el.style.borderLeftWidth = (dim.bar * k) + "px";
+      el.style.fontSize = (dim.fs * k) + "px";
+      el.style.lineHeight = (dim.lh * k) + "px";
       el.title = "끌어서 옮기고, 눌러서 고칩니다";
 
       if (card.editingMemo) {
@@ -2820,7 +2877,17 @@
             });
           }
         };
+        var fsd = document.createElement("button");
+        fsd.textContent = "가－";
+        fsd.title = "이 메모만 글자 작게";
+        fsd.onclick = function () { bumpMemoFs(-0.5); };
+        var fsu = document.createElement("button");
+        fsu.textContent = "가＋";
+        fsu.title = "이 메모만 글자 크게";
+        fsu.onclick = function () { bumpMemoFs(0.5); };
+
         acts.appendChild(ok); acts.appendChild(rm);
+        acts.appendChild(fsd); acts.appendChild(fsu);
         acts.addEventListener("pointerdown", function (e) { e.stopPropagation(); });
         el.appendChild(acts);
 
@@ -3112,7 +3179,7 @@
   }
 
   async function placeMemoFor(card) {
-    var size = memoSize(memoLines(card.memo || ""));
+    var size = memoSize(memoLines(card.memo || "", card.fs), card.fs);
     var pw = state.pageW, ph = state.pageH;
     if (!pw || !ph) { card.pin = fallbackPin(card, size); return; }
 
@@ -3125,7 +3192,7 @@
     state.cards.forEach(function (c) {
       if (c.page !== card.page || c === card) return;
       if (c.inserted && c.pin) {                       // 이미 놓인 메모
-        var sz = memoSize(memoLines(c.memo || ""));
+        var sz = memoSize(memoLines(c.memo || "", c.fs), c.fs);
         hard.push({ x: c.pin.x * pw, y: ph - c.pin.y * ph - sz.h, w: sz.w, h: sz.h });
       }
       if (!c.manual && !c.qna && c.rect && c.rect.w > 0) {   // 다른 오려낸 영역
@@ -3537,9 +3604,10 @@
    * 치수와 줄바꿈은 화면과 같은 값(MEMO, memoLines)을 쓴다 — 그래야 화면에서
    * 맞춰 둔 자리와 크기가 그대로 나간다.
    */
-  function memoToPng(text, manual) {
-    var lines = memoLines(text);
-    var size = memoSize(lines);
+  function memoToPng(text, manual, fs) {
+    var dim = memoDims(fs);
+    var lines = memoLines(text, fs);
+    var size = memoSize(lines, fs);
     var s = 3;                       // 인쇄해도 뭉개지지 않게 3배로 그린다
     var cv = document.createElement("canvas");
     cv.width = Math.round(size.w * s);
@@ -3550,13 +3618,13 @@
     c.fillStyle = "#fff8dc";
     c.fillRect(0, 0, size.w, size.h);
     c.fillStyle = manual ? "#4aa3e0" : "#ffd83d";
-    c.fillRect(0, 0, MEMO.bar, size.h);
+    c.fillRect(0, 0, dim.bar, size.h);
 
     c.fillStyle = "#241d00";
-    c.font = MEMO.fs + "px sans-serif";
+    c.font = dim.fs + "px sans-serif";
     c.textBaseline = "middle";
     lines.forEach(function (ln, i) {
-      c.fillText(ln, MEMO.bar + MEMO.pad, MEMO.pad + i * MEMO.lh + MEMO.lh / 2);
+      c.fillText(ln, dim.bar + dim.pad, dim.pad + i * dim.lh + dim.lh / 2);
     });
     return { dataUrl: cv.toDataURL("image/png"), w: size.w, h: size.h };
   }
@@ -3680,7 +3748,7 @@
           }
         }
 
-        var memo = memoToPng(card.memo || card.summary, card.manual);
+        var memo = memoToPng(card.memo || card.summary, card.manual, card.fs);
         var png = await doc.embedPng(memo.dataUrl);
 
         // 자리는 화면에서 이미 정해졌다(card.pin). 여기서 다시 계산하지 않는다
@@ -3764,8 +3832,8 @@
     setStatus("글자 크기 " + noteFs + "px");
   }
   // PDF에 붙는 메모 글자 크기 (Ctrl+> / Ctrl+< 와 같은 동작)
-  $("mfsUp").onclick = function () { applyMemoFs(MEMO.fs + 0.5); };
-  $("mfsDown").onclick = function () { applyMemoFs(MEMO.fs - 0.5); };
+  $("mfsUp").onclick = function () { bumpMemoFs(0.5); };
+  $("mfsDown").onclick = function () { bumpMemoFs(-0.5); };
 
   $("fsUp").onclick = function () { bumpNoteFs(1); };
   $("fsDown").onclick = function () { bumpNoteFs(-1); };
@@ -3803,8 +3871,8 @@
      * 정리 패널 글자는 패널 머리의 가－/가＋ 버튼이 맡는다 — 둘 다 단축키에
      * 걸어 두면 지금 무엇이 커지는지 헷갈린다.
      */
-    if (e.key === ">" || e.key === "." ) { e.preventDefault(); applyMemoFs(MEMO.fs + 0.5); return; }
-    if (e.key === "<" || e.key === ",") { e.preventDefault(); applyMemoFs(MEMO.fs - 0.5); return; }
+    if (e.key === ">" || e.key === "." ) { e.preventDefault(); bumpMemoFs(0.5); return; }
+    if (e.key === "<" || e.key === ",") { e.preventDefault(); bumpMemoFs(-0.5); return; }
 
     // Ctrl +/- 도 화면 전체 대신 PDF만
     if (e.key === "+" || e.key === "=") { e.preventDefault(); zoomPdf(0.25); return; }
