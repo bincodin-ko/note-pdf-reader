@@ -370,6 +370,18 @@
     white-space: pre-wrap;
     overflow-wrap: anywhere;
   }
+  /* 앱이 자료를 얼마나 읽어냈는지 알리는 줄 */
+  .cardnote {
+    font-size: 12px;
+    line-height: 1.5;
+    color: #ffd06b;
+    background: rgba(255, 208, 107, 0.09);
+    border: 1px solid rgba(255, 208, 107, 0.25);
+    border-radius: 7px;
+    padding: 7px 9px;
+    margin-bottom: 8px;
+  }
+
   /* 답에 섞여 오는 마크다운 표시를 읽을 수 있는 모양으로 (renderText 참고) */
   .cardtext .mdh { font-weight: 600; margin-top: 7px; }
   .cardtext .mdli { padding-left: 13px; position: relative; }
@@ -1248,11 +1260,80 @@
     });
   }
 
+  /*
+   * 글자 정보가 없는 자료에서 줄 찾기.
+   *
+   * bandsInRect는 PDF 안에 적힌 글자 위치를 읽어 줄에 맞춘다. 그런데 스캔해서
+   * 만든 자료(또는 글꼴 정보가 빠진 PDF)에는 그 정보가 아예 없어서, 그은 자리를
+   * 네모째 칠해 버렸다. "글자에만 칠해지는 게 아니라 드래그한 범위가 통째로
+   * 칠해진다"는 게 이것이다.
+   *
+   * 글자를 못 읽어도 화면에는 그려져 있다. 그래서 그린 그림에서 어두운 가로줄을
+   * 찾는다 — 글자가 있는 줄만 어둡다. OCR이 아니라 줄 자리만 보는 것이라 가볍고,
+   * 어떤 자료에서든 된다.
+   */
+  function bandsByInk(rect) {
+    if (!state.canvas) return null;
+    var d = state.dprUsed;
+    var x0 = Math.max(0, Math.round(rect.x * d));
+    var y0 = Math.max(0, Math.round(rect.y * d));
+    var w = Math.min(state.canvas.width - x0, Math.round(rect.w * d));
+    var h = Math.min(state.canvas.height - y0, Math.round(rect.h * d));
+    if (w < 4 || h < 4) return null;
+
+    var img;
+    try {
+      img = state.canvas.getContext("2d", { willReadFrequently: true })
+              .getImageData(x0, y0, w, h).data;
+    } catch (e) { return null; }
+
+    // 줄마다 어두운 화소가 몇 개인지, 그리고 그 줄의 왼쪽·오른쪽 끝
+    var need = Math.max(2, Math.round(w * 0.012));
+    var rows = [];
+    for (var y = 0; y < h; y++) {
+      var n = 0, lo = -1, hi = -1, base = y * w * 4;
+      for (var x = 0; x < w; x++) {
+        var i = base + x * 4;
+        // 사람 눈에 가까운 밝기. 노란 형광펜 위에 또 그어도 글자는 어둡다
+        var lum = (img[i] * 0.299 + img[i + 1] * 0.587 + img[i + 2] * 0.114);
+        if (img[i + 3] > 20 && lum < 190) { n++; if (lo < 0) lo = x; hi = x; }
+      }
+      rows.push(n >= need ? { lo: lo, hi: hi } : null);
+    }
+
+    // 이어지는 어두운 줄을 한 띠로 묶는다. 한두 화소짜리는 얼룩이라 버린다
+    var bands = [], cur = null;
+    var minH = Math.max(3, Math.round(3 * d));
+    for (var y2 = 0; y2 <= h; y2++) {
+      var r = y2 < h ? rows[y2] : null;
+      if (r) {
+        if (!cur) cur = { y0: y2, y1: y2, lo: r.lo, hi: r.hi };
+        else { cur.y1 = y2; cur.lo = Math.min(cur.lo, r.lo); cur.hi = Math.max(cur.hi, r.hi); }
+      } else if (cur) {
+        if (cur.y1 - cur.y0 + 1 >= minH) bands.push(cur);
+        cur = null;
+      }
+    }
+    if (!bands.length) return null;
+
+    var pad = 1.5;
+    return bands.map(function (b) {
+      var bx = (x0 + b.lo) / d - pad;
+      var bw = (b.hi - b.lo + 1) / d + pad * 2;
+      var by = (y0 + b.y0) / d - pad;
+      var bh = (b.y1 - b.y0 + 1) / d + pad * 2;
+      // 그은 네모 밖으로는 나가지 않게 가로만 잘라 둔다
+      var left = Math.max(bx, rect.x), right = Math.min(bx + bw, rect.x + rect.w);
+      return { x: left, y: by, w: Math.max(2, right - left), h: bh };
+    });
+  }
+
   async function addMark(rect) {
     var W = state.viewport.width / state.dprUsed;
     var H = state.viewport.height / state.dprUsed;
-    var bands = await bandsInRect(rect);
-    if (!bands) bands = [rect];          // 글자를 못 찾으면 그은 자리를 그대로
+    var bands = await bandsInRect(rect);      // PDF가 알려 주는 글자 자리
+    if (!bands) bands = bandsByInk(rect);     // 없으면 그림에서 줄을 찾는다
+    if (!bands) bands = [rect];               // 그것도 못 찾으면 그은 자리를 그대로
 
     var mark = {
       id: "m" + Date.now(),
@@ -2317,11 +2398,27 @@
         return;
       }
 
+      /*
+       * 얼마나 읽어냈는지 먼저 알려 준다.
+       *
+       * 스캔본은 쪽 몇 개만 글자가 남아 있는 일이 흔하다. 그러면 모델은 받은
+       * 만큼만 보고 "없습니다"라고 답하는데, 사용자 눈에는 앱이 자료를 안 읽은
+       * 것처럼 보인다. 앱이 못 읽은 것이라고 먼저 말해 주는 편이 맞다.
+       */
+      var thin = digest.pages < state.pages * 0.4;
+      card.note = thin
+        ? "이 자료는 " + state.pages + "쪽 중 " + digest.pages +
+          "쪽에서만 글자를 읽어낼 수 있었습니다(나머지는 그림입니다). 아래 답은 그 " +
+          digest.pages + "쪽만 보고 쓴 것입니다 — 찾으시는 쪽으로 가서 \"이 쪽\"으로 물어보세요."
+        : (digest.sent < digest.pages
+            ? "자료가 길어 앞쪽부터 " + digest.sent + "쪽까지만 보고 답했습니다."
+            : "");
+
       content.push({
         type: "text",
         text:
           "다음은 강의자료 " + state.pages + "쪽 중 글자를 읽어낸 " + digest.pages +
-          "쪽의 원문입니다.\n\n" + digest.text +
+          "쪽의 원문입니다(그중 " + digest.sent + "쪽을 보냅니다).\n\n" + digest.text +
           "\n\n학생 질문: " + text + "\n\n" +
           "한국어로 구체적으로 답하세요. 10줄 이내. " +
           "찾은 내용이 어느 쪽에 있는지 반드시 \"N쪽\" 형식으로 밝히세요. " +
@@ -2400,7 +2497,7 @@
      */
     var BUDGET = 240000;
     var per = Math.max(900, Math.min(6000, Math.floor(BUDGET / Math.max(1, state.pages))));
-    var out = [], withText = 0, cut = 0;
+    var out = [], withText = 0, sent = 0, used = 0;
 
     for (var i = 1; i <= state.pages; i++) {
       try {
@@ -2409,12 +2506,16 @@
         var t = tc.items.map(function (x) { return x.str; }).join(" ").replace(/\s+/g, " ").trim();
         if (!t) continue;
         withText++;
-        if (t.length > per) { t = t.slice(0, per); cut++; }
+        if (t.length > per) t = t.slice(0, per);
+        // 예산은 끝이 있다. 넘으면 거기서 멈추고, 어디까지 봤는지 알려 준다
+        if (used + t.length > BUDGET) break;
+        used += t.length;
+        sent++;
         out.push(i + "쪽: " + t);
       } catch (e) { /* 한 쪽을 못 읽어도 나머지로 답한다 */ }
     }
 
-    _allText = { text: out.join("\n"), pages: withText, cut: cut };
+    _allText = { text: out.join("\n"), pages: withText, sent: sent, total: state.pages };
     return _allText;
   }
 
@@ -2656,6 +2757,13 @@
         q.className = "qtext";
         q.textContent = "“" + card.question + "”";
         body.appendChild(q);
+      }
+
+      if (card.note && !card.pending) {
+        var nt = document.createElement("div");
+        nt.className = "cardnote";
+        nt.textContent = card.note;
+        body.appendChild(nt);
       }
 
       var txt = document.createElement("div");
