@@ -3030,7 +3030,16 @@
 
   var CAPNOTE_KEY = "Capnote";
 
-  function addMemoAnnot(doc, page, pngRef, x, y, w, h, text) {
+  /*
+   * 주석에 글(/T, /Contents)을 달지 않는다.
+   *
+   * 달아 두면 뷰어가 메모 위에 마우스만 올려도 말풍선을 띄운다. 메모는 이미
+   * 페이지에 보이는데 그 위를 덮으니 방해만 됐다. 게다가 pdf-lib의
+   * PDFString.of는 글자를 바이트 그대로 적어서 한글이 깨져 나왔다
+   * ("오려둔 공책"이 "$$T õE"처럼). 바로 적더라도 말풍선 자체가 군더더기라
+   * 아예 뺀다. 우리가 다시 찾을 때 쓰는 표시는 /Capnote 하나면 된다.
+   */
+  function addMemoAnnot(doc, page, pngRef, x, y, w, h) {
     var ap = doc.context.stream("q " + w + " 0 0 " + h + " 0 0 cm /Img Do Q", {
       Type: "XObject", Subtype: "Form", FormType: 1,
       BBox: [0, 0, w, h],
@@ -3041,8 +3050,6 @@
       Rect: [x, y, x + w, y + h],
       F: 4,                                    // 인쇄에도 나오게
       AP: { N: doc.context.register(ap) },
-      T: PDFLib.PDFString.of("오려둔 공책"),
-      Contents: PDFLib.PDFString.of(String(text).slice(0, 300)),
       Capnote: PDFLib.PDFBool.True             // 다음에 찾아 지우기 위한 표시
     });
     page.node.addAnnot(doc.context.register(annot));
@@ -3075,7 +3082,6 @@
       CA: 1,
       F: 4,
       AP: { N: doc.context.register(ap) },
-      T: PDFLib.PDFString.of("오려둔 공책"),
       Capnote: PDFLib.PDFBool.True
     });
     page.node.addAnnot(doc.context.register(annot));
@@ -3097,7 +3103,6 @@
       BS: { W: 1.5, S: "S" },
       F: 4,
       AP: { N: doc.context.register(ap) },
-      T: PDFLib.PDFString.of("오려둔 공책"),
       Capnote: PDFLib.PDFBool.True
     });
     page.node.addAnnot(doc.context.register(annot));
@@ -3865,7 +3870,7 @@
         var x = Math.max(m, Math.min(pin.x * pw, pw - memo.w - m));
         var y = Math.max(m, Math.min(ph - pin.y * ph - memo.h, ph - memo.h - m));
         if (burn) pg.drawImage(png, { x: x, y: y, width: memo.w, height: memo.h });
-        else addMemoAnnot(doc, pg, png.ref, x, y, memo.w, memo.h, card.memo || "");
+        else addMemoAnnot(doc, pg, png.ref, x, y, memo.w, memo.h);
       }
 
       /*
