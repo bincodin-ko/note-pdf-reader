@@ -538,6 +538,7 @@
     flex: 0 0 auto;
   }
   .scope.all { color: var(--marker); border-color: rgba(255, 216, 61, 0.5); }
+  .scope.chat { color: #7fc4ff; border-color: rgba(127, 196, 255, 0.5); }
 
   /* 답에서 쪽 번호를 뽑아 만든 이동 버튼 */
   .jump { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
@@ -2249,7 +2250,7 @@
       id: "q" + Date.now(),
       page: state.page,
       qna: true,
-      scope: qAll ? "all" : "page",
+      scope: Q_SCOPES[qScope].id,
       question: text,
       summary: "",
       pending: true
@@ -2259,6 +2260,45 @@
     $("cards").scrollTop = $("cards").scrollHeight;
 
     var content = [];
+
+    /*
+     * 대화 — 자료를 보내지 않는다.
+     *
+     * 자료를 같이 보내면 모델이 거기에 매여 "자료에 없습니다"로 답한다.
+     * 여기서는 아무것도 안 보내고, 대신 앞서 나눈 대화만 이어 붙인다.
+     * 서버가 CLI로 갈 때 역할(role)이 한 덩어리로 합쳐지므로, 주고받은 말을
+     * 우리가 직접 적어 넣어야 이어진다.
+     */
+    if (card.scope === "chat") {
+      var hist = state.cards.filter(function (c) {
+        return c.qna && c.scope === "chat" && c !== card && c.summary && !c.failed;
+      }).slice(-6).map(function (c) {
+        return "나: " + c.question + "\n너: " + String(c.summary).replace(/\s+/g, " ").slice(0, 500);
+      }).join("\n\n");
+
+      content.push({
+        type: "text",
+        text:
+          "강의를 듣다가 떠오른 것을 묻습니다. 강의자료와는 상관없는 물음일 수 있습니다.\n" +
+          (hist ? "\n지금까지 나눈 이야기:\n" + hist + "\n" : "") +
+          "\n물음: " + text + "\n\n" +
+          "한국어로, 수업 중에 읽을 것이므로 짧고 구체적으로 답하세요. 8줄 이내.\n" +
+          "마크다운 표시(**, ##)는 쓰지 마세요. 목록은 \"- \"로만 적으세요."
+      });
+      try {
+        card.summary = await callClaude([{ role: "user", content: content }]);
+        setStatus("");
+      } catch (err) {
+        card.summary = "답을 받아오지 못했습니다.";
+        card.failed = true;
+        setStatus(String(err.message || err), true);
+      }
+      card.pending = false;
+      renderCards();
+      saveCard(card);
+      return;
+    }
+
     if (card.scope === "all") {
       var digest = await allPagesDigest();
 
@@ -2378,13 +2418,37 @@
     return _allText;
   }
 
-  var qAll = false;
+  /*
+   * 무엇을 두고 묻는지 — 이 쪽 / 전체 쪽 / 그냥 대화.
+   *
+   * 수업 중에 떠오르는 물음이 늘 자료 안에 있는 건 아니다. "이거 실제로는
+   * 어떻게 쓰여?" 같은 건 자료를 들이밀 필요가 없고, 오히려 자료를 같이
+   * 보내면 "자료에 없습니다"만 돌아온다. 그래서 자료를 아예 빼는 칸을 뒀다.
+   * 버튼 하나를 눌러 돌려 쓴다 — 칸을 늘리면 그만큼 자료 볼 자리가 준다.
+   */
+  var Q_SCOPES = [
+    { id: "page", label: "이 쪽",  hint: "이 쪽에 대해 물어보기" },
+    { id: "all",  label: "전체",   hint: "전체 쪽에서 찾아보기" },
+    { id: "chat", label: "대화",   hint: "자료와 상관없이 물어보기" }
+  ];
+  var qScope = 0;
+
+  function applyQScope() {
+    var s = Q_SCOPES[qScope];
+    $("qscope").textContent = s.label;
+    $("qscope").classList.toggle("all", s.id === "all");
+    $("qscope").classList.toggle("chat", s.id === "chat");
+    $("qscope").title = s.id === "chat"
+      ? "자료를 보내지 않고 그냥 묻습니다. 앞서 나눈 대화는 이어집니다"
+      : s.id === "all" ? "자료 전체의 원문에서 찾습니다" : "지금 보고 있는 쪽 화면을 보고 답합니다";
+    $("q").placeholder = s.hint;
+  }
+
   $("qscope").onclick = function () {
-    qAll = !qAll;
-    $("qscope").classList.toggle("all", qAll);
-    $("qscope").textContent = qAll ? "전체" : "이 쪽";
-    $("q").placeholder = qAll ? "전체 쪽에서 찾아보기" : "이 쪽에 대해 물어보기";
+    qScope = (qScope + 1) % Q_SCOPES.length;
+    applyQScope();
   };
+  applyQScope();
 
   function sendQuestion() {
     var el = $("q");
@@ -2430,15 +2494,18 @@
       var meta = document.createElement("div");
       meta.className = "cardmeta";
       // 쪽 표시를 누르면 그 쪽으로 간다 — 목록에서 자료로 되짚어 가는 길
-      var jumpable = !(card.qna && card.scope === "all");
+      var jumpable = !(card.qna && (card.scope === "all" || card.scope === "chat"));
       var pg = document.createElement(jumpable ? "button" : "span");
       if (jumpable) {
         pg.className = "gopage";
         pg.title = card.page + "쪽으로 갑니다";
         pg.onclick = function () { gotoPage(card.page); };
       }
-      pg.textContent = (card.qna && card.scope === "all" ? "전체" : card.page + "쪽") +
-                       (card.qna ? " · 질문" : "");
+      // 대화는 쪽도 "질문"도 붙이지 않는다 — 자료와 상관없는 말이라 그 편이 맞다
+      pg.textContent = card.qna && card.scope === "chat"
+        ? "대화"
+        : (card.qna && card.scope === "all" ? "전체" : card.page + "쪽") +
+          (card.qna ? " · 질문" : "");
       if (card.mode && !card.qna) {
         var tag = document.createElement("span");
         tag.className = "modetag";
@@ -3490,7 +3557,7 @@
           } else if (c.manual) {
             lines.push("- (직접 쓴 메모) " + (c.memo || ""));
           } else if (c.qna) {
-            lines.push("### Q. " + (c.question || ""));
+            lines.push("### Q. " + (c.scope === "chat" ? "(대화) " : "") + (c.question || ""));
             lines.push("");
             lines.push(c.summary || "");
           } else {
@@ -3608,7 +3675,8 @@
       var head = c.hl
         ? (c.page + "쪽 · 형광펜")
         : c.qna
-          ? ((c.scope === "all" ? "전체" : c.page + "쪽") + " · 질문")
+          ? (c.scope === "chat" ? "대화"
+             : (c.scope === "all" ? "전체" : c.page + "쪽") + " · 질문")
           : (c.page + "쪽" + (c.mode ? " · " + c.mode : ""));
       text(head, 9.5, false, "#9a9a9a", 15);
 
@@ -3740,7 +3808,8 @@
       ph.textContent = c.hl
         ? (c.page + "쪽 · 형광펜(" + penOf(c.color).name + ")")
         : c.qna
-          ? ((c.scope === "all" ? "전체" : c.page + "쪽") + " · 질문")
+          ? (c.scope === "chat" ? "대화"
+             : (c.scope === "all" ? "전체" : c.page + "쪽") + " · 질문")
           : (c.page + "쪽" + (c.mode ? " · " + c.mode : ""));
       var pb = document.createElement("div");
       pb.className = "pib";
