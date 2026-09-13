@@ -1534,6 +1534,11 @@
     state.canvas.style.width = cw / dpr + "px";
     state.canvas.style.height = ch / dpr + "px";
     wrap.style.width = cw / dpr + "px";
+    // 확대 중에 임시로 늘려 두었던 것을 되돌린다 (zoomPdf 참고)
+    state.layer.style.transform = "none";
+    state.layer.style.width = "";
+    state.layer.style.height = "";
+    state.drawnScale = state.scale;        // 지금 캔버스에 그려진 배율
     var vis = state.canvas.getContext("2d");
     vis.clearRect(0, 0, cw, ch);
     vis.drawImage(hit, 0, 0);
@@ -3953,14 +3958,46 @@
   applyNoteFs();
 
   // PDF만 확대·축소한다. 화면 전체가 커지면 정리 패널까지 같이 흔들린다
+  /*
+   * 확대·축소는 눈에 먼저 보여야 한다.
+   *
+   * 전에는 배율이 바뀔 때마다 그 쪽을 처음부터 다시 그렸다. 휠을 한 번 굴리면
+   * 이벤트가 열댓 번 오니 그만큼 다시 그렸고, 다 그릴 때까지 화면은 그대로라
+   * 굼떠 보였다. 게다가 배율이 바뀌면 미리 그려 둔 쪽이 전부 못 쓰게 돼,
+   * 한 눈금 움직일 때마다 문서 전체를 다시 그리는 일이 뒤에서 돌았다.
+   *
+   * 이제 이미 그려 둔 그림을 CSS로 늘려 그 자리에서 보여 주고(잠깐 흐릿하다),
+   * 손을 멈춘 뒤에 한 번만 또렷하게 다시 그린다. 메모·형광펜이 얹힌 층도
+   * 같이 늘려야 글자와 어긋나지 않는다.
+   */
+  function previewZoom() {
+    var wrap = document.querySelector(".pagewrap");
+    if (!wrap || !state.canvas || !state.layer || !state.drawnScale) return;
+    var k = state.scale / state.drawnScale;
+    var w = state.canvas.width / state.dprUsed, h = state.canvas.height / state.dprUsed;
+    state.canvas.style.width = (w * k) + "px";
+    state.canvas.style.height = (h * k) + "px";
+    wrap.style.width = (w * k) + "px";
+    state.layer.style.width = w + "px";     // 층은 늘리기 전 크기로 못 박고
+    state.layer.style.height = h + "px";
+    state.layer.style.transformOrigin = "top left";
+    state.layer.style.transform = k === 1 ? "none" : "scale(" + k + ")";
+  }
+
+  var zoomTimer = null;
   function zoomPdf(d) {
     if (!state.pdf) return;
-    var next = Math.max(0.25, Math.min(4, state.scale + d));
+    var next = Math.max(0.25, Math.min(4, Math.round((state.scale + d) * 1000) / 1000));
     if (Math.abs(next - state.scale) < 0.001) return;
     state.scale = next;
     state.userZoomed = true;
-    closeMemoEdit();
-    renderPage();
+    previewZoom();
+    clearTimeout(zoomTimer);
+    zoomTimer = setTimeout(function () {
+      zoomTimer = null;
+      closeMemoEdit();
+      renderPage();
+    }, 120);
   }
 
   /*
