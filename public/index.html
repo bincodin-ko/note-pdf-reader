@@ -370,6 +370,24 @@
     white-space: pre-wrap;
     overflow-wrap: anywhere;
   }
+  /* 답에 섞여 오는 마크다운 표시를 읽을 수 있는 모양으로 (renderText 참고) */
+  .cardtext .mdh { font-weight: 600; margin-top: 7px; }
+  .cardtext .mdli { padding-left: 13px; position: relative; }
+  .cardtext .mdli::before {
+    content: "·";
+    position: absolute;
+    left: 3px;
+    color: var(--muted);
+  }
+  .cardtext .mdgap { height: 7px; }
+  .cardtext b { color: var(--marker); font-weight: 600; }
+  .cardtext code {
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 0.92em;
+    background: var(--ink-3);
+    padding: 0 3px;
+    border-radius: 3px;
+  }
   .cardtext.loading { color: var(--muted); }
 
   .cardedit label {
@@ -2109,6 +2127,7 @@
       (ctx ? "직전에 오려낸 것들: " + ctx + "\n" : "") +
       "\n" + how + "\n" +
       "\n한국어로 답하고, 아래 JSON만 출력하세요. 설명이나 코드블록 표시는 넣지 마세요.\n" +
+      "글 안에도 마크다운 표시(**, ##)는 쓰지 마세요. 목록은 \"- \"로만 적으세요.\n" +
       '{"memo": "PDF에 붙일 핵심 3~5줄. 각 줄 28자 이내로 끊고 줄바꿈 \\n 으로 구분. ' +
       '나중에 이 줄만 봐도 무슨 내용인지 알 수 있게 구체적으로.", ' +
       '"summary": "위에서 시킨 대로 쓴 본문"}';
@@ -2177,6 +2196,54 @@
    * 대개 "이거 뭐야"라서, 화면을 안 보여주면 답이 겉돈다.
    * 오려내기와 달리 PDF에 붙일 자리가 없으므로 메모 제안은 하지 않는다.
    */
+  /*
+   * 답에 섞여 오는 마크다운 표시를 사람이 읽는 모양으로 바꾼다.
+   *
+   * **굵게**, ### 제목, - 목록 같은 표시가 글자 그대로 보여 읽기 나빴다.
+   * 모델에게 쓰지 말라고 일러 두어도 섞여 오므로 여기서 받아낸다.
+   * 모델이 만든 글이니 태그로 해석되지 않게 먼저 막아 둔다.
+   */
+  function mdInline(t) {
+    t = t.replace(/[&<>]/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c];
+    });
+    t = t.replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>");
+    t = t.replace(/`([^`\n]+)`/g, "<code>$1</code>");
+    return t;
+  }
+
+  function renderText(el, text) {
+    el.textContent = "";
+    String(text == null ? "" : text).split("\n").forEach(function (line) {
+      var t = line.trim();
+      var d = document.createElement("div");
+      var h = t.match(/^#{1,6}\s+(.*)$/);
+      if (h) { d.className = "mdh"; d.innerHTML = mdInline(h[1]); }
+      else if (/^([-*•]|\d+\.)\s+/.test(t)) {
+        d.className = "mdli";
+        d.innerHTML = mdInline(t.replace(/^([-*•]|\d+\.)\s+/, ""));
+      } else if (!t) { d.className = "mdgap"; }
+      else { d.innerHTML = mdInline(t); }
+      el.appendChild(d);
+    });
+  }
+
+  /*
+   * 종이(PDF)와 메모에는 표시를 벗겨서 넣는다. 거기서는 굵게 할 수 없으므로
+   * 별표가 그대로 남으면 지저분하기만 하다.
+   */
+  function mdPlain(text) {
+    return String(text == null ? "" : text)
+      .split("\n")
+      .map(function (line) {
+        var t = line.replace(/\*\*([^*\n]+)\*\*/g, "$1").replace(/`([^`\n]+)`/g, "$1");
+        t = t.replace(/^#{1,6}\s+/, "");
+        t = t.replace(/^([-*])\s+/, "· ");
+        return t;
+      })
+      .join("\n");
+  }
+
   async function askQuestion(text) {
     var card = {
       id: "q" + Date.now(),
@@ -2194,14 +2261,33 @@
     var content = [];
     if (card.scope === "all") {
       var digest = await allPagesDigest();
+
+      /*
+       * 글자 정보가 없는 스캔본은 전체 쪽에서 찾을 수가 없다. 예전에는 빈 글을
+       * 보내 놓고 모델이 "자료에 없습니다"라고 답했는데, 없는 게 아니라 못 읽은
+       * 것이므로 그렇게 말해 주는 편이 맞다.
+       */
+      if (!digest.pages) {
+        card.summary = "이 자료에서는 글자를 읽어낼 수 없습니다(그림으로만 된 스캔본입니다).\n" +
+                       "찾으려는 쪽으로 가서 \"이 쪽\"으로 물어보시면 화면을 보고 답합니다.";
+        card.failed = true;
+        card.pending = false;
+        renderCards();
+        saveCard(card);
+        return;
+      }
+
       content.push({
         type: "text",
         text:
-          "다음은 강의자료 " + state.pages + "쪽 전체의 원문입니다.\n\n" + digest +
+          "다음은 강의자료 " + state.pages + "쪽 중 글자를 읽어낸 " + digest.pages +
+          "쪽의 원문입니다.\n\n" + digest.text +
           "\n\n학생 질문: " + text + "\n\n" +
-          "한국어로 짧고 구체적으로 답하세요. 6줄 이내. " +
+          "한국어로 구체적으로 답하세요. 10줄 이내. " +
           "찾은 내용이 어느 쪽에 있는지 반드시 \"N쪽\" 형식으로 밝히세요. " +
-          "자료에 없으면 없다고 먼저 말하세요."
+          "위 원문을 끝까지 살펴본 뒤에 답하고, 비슷한 말로 적혀 있으면 그것도 찾으세요. " +
+          "정말 없을 때만 없다고 하세요.\n" +
+          "마크다운 표시(**, ##)는 쓰지 마세요. 목록은 \"- \"로만 적으세요."
       });
       try {
         card.summary = await callClaude([{ role: "user", content: content }]);
@@ -2237,7 +2323,8 @@
         (ctx ? "직전에 오려낸 것들: " + ctx + "\n" : "") +
         "\n학생 질문: " + text + "\n\n" +
         "한국어로, 수업 중에 읽을 것이므로 짧고 구체적으로 답하세요. 6줄 이내. " +
-        "자료에 없는 내용이면 그렇다고 먼저 말하세요."
+        "자료에 없는 내용이면 그렇다고 먼저 말하세요.\n" +
+        "마크다운 표시(**, ##)는 쓰지 마세요. 목록은 \"- \"로만 적으세요."
     });
 
     try {
@@ -2262,16 +2349,32 @@
   var _allText = null;
   async function allPagesDigest() {
     if (_allText) return _allText;
-    var out = [];
+
+    /*
+     * 쪽마다 얼마나 담을지 쪽수에 맞춰 나눈다.
+     *
+     * 전에는 쪽마다 앞 700자만 담고 전체도 6만 자에서 끊었다. 빽빽한 강의자료는
+     * 한 쪽이 2천 자를 넘어서 뒷부분이 통째로 잘렸고, 거기 있는 내용을 물으면
+     * "자료에 없다"는 답이 돌아왔다 — 실은 보내지도 않은 것이었다.
+     * 이제 예산을 쪽수로 나눠 모든 쪽이 고르게 들어가게 한다.
+     */
+    var BUDGET = 240000;
+    var per = Math.max(900, Math.min(6000, Math.floor(BUDGET / Math.max(1, state.pages))));
+    var out = [], withText = 0, cut = 0;
+
     for (var i = 1; i <= state.pages; i++) {
       try {
         var pg = await state.pdf.getPage(i);
         var tc = await pg.getTextContent();
         var t = tc.items.map(function (x) { return x.str; }).join(" ").replace(/\s+/g, " ").trim();
-        if (t) out.push(i + "쪽: " + t.slice(0, 700));
+        if (!t) continue;
+        withText++;
+        if (t.length > per) { t = t.slice(0, per); cut++; }
+        out.push(i + "쪽: " + t);
       } catch (e) { /* 한 쪽을 못 읽어도 나머지로 답한다 */ }
     }
-    _allText = out.join("\n").slice(0, 60000);
+
+    _allText = { text: out.join("\n"), pages: withText, cut: cut };
     return _allText;
   }
 
@@ -2490,9 +2593,8 @@
 
       var txt = document.createElement("div");
       txt.className = "cardtext" + (card.pending ? " loading" : "");
-      txt.textContent = card.pending
-        ? (card.qna ? "답하는 중…" : "정리하는 중…")
-        : card.summary;
+      if (card.pending) txt.textContent = card.qna ? "답하는 중…" : "정리하는 중…";
+      else renderText(txt, card.summary);
       body.appendChild(txt);
 
       if (card.detail) {
@@ -2500,7 +2602,7 @@
         det.className = "cardtext";
         det.style.marginTop = "9px";
         det.style.color = "var(--muted)";
-        det.textContent = card.detail;
+        renderText(det, card.detail);
         body.appendChild(det);
       }
 
@@ -3513,7 +3615,7 @@
       if (c.qna) {
         text("Q. " + (c.question || ""), 11.5, true, "#7a5c00", 17);
         y += 3;
-        text(c.summary || "", 10.5, false, "#222222", 15.5);
+        text(mdPlain(c.summary), 10.5, false, "#222222", 15.5);
       } else {
         var im = imgs[c.id];
         if (im && im.width) {
@@ -3526,9 +3628,9 @@
           cur.g.strokeRect(M, y, w, h);
           y += h + 10;
         }
-        if (c.memo) { text(c.memo, 11, true, "#7a5c00", 16); y += 2; }
-        text(c.summary || "", 10.5, false, "#222222", 15.5);
-        if (c.detail) { y += 4; text(c.detail, 10, false, "#555555", 15); }
+        if (c.memo) { text(mdPlain(c.memo), 11, true, "#7a5c00", 16); y += 2; }
+        text(mdPlain(c.summary), 10.5, false, "#222222", 15.5);
+        if (c.detail) { y += 4; text(mdPlain(c.detail), 10, false, "#555555", 15); }
       }
       y += 6;
     }
@@ -3723,6 +3825,7 @@
    * 맞춰 둔 자리와 크기가 그대로 나간다.
    */
   function memoToPng(text, manual, fs) {
+    text = mdPlain(text);                  // 종이에는 별표가 그대로 남으면 지저분하다
     var dim = memoDims(fs);
     var lines = memoLines(text, fs);
     var size = memoSize(lines, fs);
