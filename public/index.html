@@ -370,6 +370,24 @@
     white-space: pre-wrap;
     overflow-wrap: anywhere;
   }
+  /* 답에 섞여 오는 마크다운 표시를 읽을 수 있는 모양으로 (renderText 참고) */
+  .cardtext .mdh { font-weight: 600; margin-top: 7px; }
+  .cardtext .mdli { padding-left: 13px; position: relative; }
+  .cardtext .mdli::before {
+    content: "·";
+    position: absolute;
+    left: 3px;
+    color: var(--muted);
+  }
+  .cardtext .mdgap { height: 7px; }
+  .cardtext b { color: var(--marker); font-weight: 600; }
+  .cardtext code {
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 0.92em;
+    background: var(--ink-3);
+    padding: 0 3px;
+    border-radius: 3px;
+  }
   .cardtext.loading { color: var(--muted); }
 
   .cardedit label {
@@ -520,6 +538,7 @@
     flex: 0 0 auto;
   }
   .scope.all { color: var(--marker); border-color: rgba(255, 216, 61, 0.5); }
+  .scope.chat { color: #7fc4ff; border-color: rgba(127, 196, 255, 0.5); }
 
   /* 답에서 쪽 번호를 뽑아 만든 이동 버튼 */
   .jump { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
@@ -1534,6 +1553,11 @@
     state.canvas.style.width = cw / dpr + "px";
     state.canvas.style.height = ch / dpr + "px";
     wrap.style.width = cw / dpr + "px";
+    // 확대 중에 임시로 늘려 두었던 것을 되돌린다 (zoomPdf 참고)
+    state.layer.style.transform = "none";
+    state.layer.style.width = "";
+    state.layer.style.height = "";
+    state.drawnScale = state.scale;        // 지금 캔버스에 그려진 배율
     var vis = state.canvas.getContext("2d");
     vis.clearRect(0, 0, cw, ch);
     vis.drawImage(hit, 0, 0);
@@ -2104,6 +2128,7 @@
       (ctx ? "직전에 오려낸 것들: " + ctx + "\n" : "") +
       "\n" + how + "\n" +
       "\n한국어로 답하고, 아래 JSON만 출력하세요. 설명이나 코드블록 표시는 넣지 마세요.\n" +
+      "글 안에도 마크다운 표시(**, ##)는 쓰지 마세요. 목록은 \"- \"로만 적으세요.\n" +
       '{"memo": "PDF에 붙일 핵심 3~5줄. 각 줄 28자 이내로 끊고 줄바꿈 \\n 으로 구분. ' +
       '나중에 이 줄만 봐도 무슨 내용인지 알 수 있게 구체적으로.", ' +
       '"summary": "위에서 시킨 대로 쓴 본문"}';
@@ -2172,12 +2197,60 @@
    * 대개 "이거 뭐야"라서, 화면을 안 보여주면 답이 겉돈다.
    * 오려내기와 달리 PDF에 붙일 자리가 없으므로 메모 제안은 하지 않는다.
    */
+  /*
+   * 답에 섞여 오는 마크다운 표시를 사람이 읽는 모양으로 바꾼다.
+   *
+   * **굵게**, ### 제목, - 목록 같은 표시가 글자 그대로 보여 읽기 나빴다.
+   * 모델에게 쓰지 말라고 일러 두어도 섞여 오므로 여기서 받아낸다.
+   * 모델이 만든 글이니 태그로 해석되지 않게 먼저 막아 둔다.
+   */
+  function mdInline(t) {
+    t = t.replace(/[&<>]/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c];
+    });
+    t = t.replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>");
+    t = t.replace(/`([^`\n]+)`/g, "<code>$1</code>");
+    return t;
+  }
+
+  function renderText(el, text) {
+    el.textContent = "";
+    String(text == null ? "" : text).split("\n").forEach(function (line) {
+      var t = line.trim();
+      var d = document.createElement("div");
+      var h = t.match(/^#{1,6}\s+(.*)$/);
+      if (h) { d.className = "mdh"; d.innerHTML = mdInline(h[1]); }
+      else if (/^([-*•]|\d+\.)\s+/.test(t)) {
+        d.className = "mdli";
+        d.innerHTML = mdInline(t.replace(/^([-*•]|\d+\.)\s+/, ""));
+      } else if (!t) { d.className = "mdgap"; }
+      else { d.innerHTML = mdInline(t); }
+      el.appendChild(d);
+    });
+  }
+
+  /*
+   * 종이(PDF)와 메모에는 표시를 벗겨서 넣는다. 거기서는 굵게 할 수 없으므로
+   * 별표가 그대로 남으면 지저분하기만 하다.
+   */
+  function mdPlain(text) {
+    return String(text == null ? "" : text)
+      .split("\n")
+      .map(function (line) {
+        var t = line.replace(/\*\*([^*\n]+)\*\*/g, "$1").replace(/`([^`\n]+)`/g, "$1");
+        t = t.replace(/^#{1,6}\s+/, "");
+        t = t.replace(/^([-*])\s+/, "· ");
+        return t;
+      })
+      .join("\n");
+  }
+
   async function askQuestion(text) {
     var card = {
       id: "q" + Date.now(),
       page: state.page,
       qna: true,
-      scope: qAll ? "all" : "page",
+      scope: Q_SCOPES[qScope].id,
       question: text,
       summary: "",
       pending: true
@@ -2187,16 +2260,74 @@
     $("cards").scrollTop = $("cards").scrollHeight;
 
     var content = [];
-    if (card.scope === "all") {
-      var digest = await allPagesDigest();
+
+    /*
+     * 대화 — 자료를 보내지 않는다.
+     *
+     * 자료를 같이 보내면 모델이 거기에 매여 "자료에 없습니다"로 답한다.
+     * 여기서는 아무것도 안 보내고, 대신 앞서 나눈 대화만 이어 붙인다.
+     * 서버가 CLI로 갈 때 역할(role)이 한 덩어리로 합쳐지므로, 주고받은 말을
+     * 우리가 직접 적어 넣어야 이어진다.
+     */
+    if (card.scope === "chat") {
+      var hist = state.cards.filter(function (c) {
+        return c.qna && c.scope === "chat" && c !== card && c.summary && !c.failed;
+      }).slice(-6).map(function (c) {
+        return "나: " + c.question + "\n너: " + String(c.summary).replace(/\s+/g, " ").slice(0, 500);
+      }).join("\n\n");
+
       content.push({
         type: "text",
         text:
-          "다음은 강의자료 " + state.pages + "쪽 전체의 원문입니다.\n\n" + digest +
+          "강의를 듣다가 떠오른 것을 묻습니다. 강의자료와는 상관없는 물음일 수 있습니다.\n" +
+          (hist ? "\n지금까지 나눈 이야기:\n" + hist + "\n" : "") +
+          "\n물음: " + text + "\n\n" +
+          "한국어로, 수업 중에 읽을 것이므로 짧고 구체적으로 답하세요. 8줄 이내.\n" +
+          "마크다운 표시(**, ##)는 쓰지 마세요. 목록은 \"- \"로만 적으세요."
+      });
+      try {
+        card.summary = await callClaude([{ role: "user", content: content }]);
+        setStatus("");
+      } catch (err) {
+        card.summary = "답을 받아오지 못했습니다.";
+        card.failed = true;
+        setStatus(String(err.message || err), true);
+      }
+      card.pending = false;
+      renderCards();
+      saveCard(card);
+      return;
+    }
+
+    if (card.scope === "all") {
+      var digest = await allPagesDigest();
+
+      /*
+       * 글자 정보가 없는 스캔본은 전체 쪽에서 찾을 수가 없다. 예전에는 빈 글을
+       * 보내 놓고 모델이 "자료에 없습니다"라고 답했는데, 없는 게 아니라 못 읽은
+       * 것이므로 그렇게 말해 주는 편이 맞다.
+       */
+      if (!digest.pages) {
+        card.summary = "이 자료에서는 글자를 읽어낼 수 없습니다(그림으로만 된 스캔본입니다).\n" +
+                       "찾으려는 쪽으로 가서 \"이 쪽\"으로 물어보시면 화면을 보고 답합니다.";
+        card.failed = true;
+        card.pending = false;
+        renderCards();
+        saveCard(card);
+        return;
+      }
+
+      content.push({
+        type: "text",
+        text:
+          "다음은 강의자료 " + state.pages + "쪽 중 글자를 읽어낸 " + digest.pages +
+          "쪽의 원문입니다.\n\n" + digest.text +
           "\n\n학생 질문: " + text + "\n\n" +
-          "한국어로 짧고 구체적으로 답하세요. 6줄 이내. " +
+          "한국어로 구체적으로 답하세요. 10줄 이내. " +
           "찾은 내용이 어느 쪽에 있는지 반드시 \"N쪽\" 형식으로 밝히세요. " +
-          "자료에 없으면 없다고 먼저 말하세요."
+          "위 원문을 끝까지 살펴본 뒤에 답하고, 비슷한 말로 적혀 있으면 그것도 찾으세요. " +
+          "정말 없을 때만 없다고 하세요.\n" +
+          "마크다운 표시(**, ##)는 쓰지 마세요. 목록은 \"- \"로만 적으세요."
       });
       try {
         card.summary = await callClaude([{ role: "user", content: content }]);
@@ -2232,7 +2363,8 @@
         (ctx ? "직전에 오려낸 것들: " + ctx + "\n" : "") +
         "\n학생 질문: " + text + "\n\n" +
         "한국어로, 수업 중에 읽을 것이므로 짧고 구체적으로 답하세요. 6줄 이내. " +
-        "자료에 없는 내용이면 그렇다고 먼저 말하세요."
+        "자료에 없는 내용이면 그렇다고 먼저 말하세요.\n" +
+        "마크다운 표시(**, ##)는 쓰지 마세요. 목록은 \"- \"로만 적으세요."
     });
 
     try {
@@ -2257,26 +2389,66 @@
   var _allText = null;
   async function allPagesDigest() {
     if (_allText) return _allText;
-    var out = [];
+
+    /*
+     * 쪽마다 얼마나 담을지 쪽수에 맞춰 나눈다.
+     *
+     * 전에는 쪽마다 앞 700자만 담고 전체도 6만 자에서 끊었다. 빽빽한 강의자료는
+     * 한 쪽이 2천 자를 넘어서 뒷부분이 통째로 잘렸고, 거기 있는 내용을 물으면
+     * "자료에 없다"는 답이 돌아왔다 — 실은 보내지도 않은 것이었다.
+     * 이제 예산을 쪽수로 나눠 모든 쪽이 고르게 들어가게 한다.
+     */
+    var BUDGET = 240000;
+    var per = Math.max(900, Math.min(6000, Math.floor(BUDGET / Math.max(1, state.pages))));
+    var out = [], withText = 0, cut = 0;
+
     for (var i = 1; i <= state.pages; i++) {
       try {
         var pg = await state.pdf.getPage(i);
         var tc = await pg.getTextContent();
         var t = tc.items.map(function (x) { return x.str; }).join(" ").replace(/\s+/g, " ").trim();
-        if (t) out.push(i + "쪽: " + t.slice(0, 700));
+        if (!t) continue;
+        withText++;
+        if (t.length > per) { t = t.slice(0, per); cut++; }
+        out.push(i + "쪽: " + t);
       } catch (e) { /* 한 쪽을 못 읽어도 나머지로 답한다 */ }
     }
-    _allText = out.join("\n").slice(0, 60000);
+
+    _allText = { text: out.join("\n"), pages: withText, cut: cut };
     return _allText;
   }
 
-  var qAll = false;
+  /*
+   * 무엇을 두고 묻는지 — 이 쪽 / 전체 쪽 / 그냥 대화.
+   *
+   * 수업 중에 떠오르는 물음이 늘 자료 안에 있는 건 아니다. "이거 실제로는
+   * 어떻게 쓰여?" 같은 건 자료를 들이밀 필요가 없고, 오히려 자료를 같이
+   * 보내면 "자료에 없습니다"만 돌아온다. 그래서 자료를 아예 빼는 칸을 뒀다.
+   * 버튼 하나를 눌러 돌려 쓴다 — 칸을 늘리면 그만큼 자료 볼 자리가 준다.
+   */
+  var Q_SCOPES = [
+    { id: "page", label: "이 쪽",  hint: "이 쪽에 대해 물어보기" },
+    { id: "all",  label: "전체",   hint: "전체 쪽에서 찾아보기" },
+    { id: "chat", label: "대화",   hint: "자료와 상관없이 물어보기" }
+  ];
+  var qScope = 0;
+
+  function applyQScope() {
+    var s = Q_SCOPES[qScope];
+    $("qscope").textContent = s.label;
+    $("qscope").classList.toggle("all", s.id === "all");
+    $("qscope").classList.toggle("chat", s.id === "chat");
+    $("qscope").title = s.id === "chat"
+      ? "자료를 보내지 않고 그냥 묻습니다. 앞서 나눈 대화는 이어집니다"
+      : s.id === "all" ? "자료 전체의 원문에서 찾습니다" : "지금 보고 있는 쪽 화면을 보고 답합니다";
+    $("q").placeholder = s.hint;
+  }
+
   $("qscope").onclick = function () {
-    qAll = !qAll;
-    $("qscope").classList.toggle("all", qAll);
-    $("qscope").textContent = qAll ? "전체" : "이 쪽";
-    $("q").placeholder = qAll ? "전체 쪽에서 찾아보기" : "이 쪽에 대해 물어보기";
+    qScope = (qScope + 1) % Q_SCOPES.length;
+    applyQScope();
   };
+  applyQScope();
 
   function sendQuestion() {
     var el = $("q");
@@ -2322,15 +2494,18 @@
       var meta = document.createElement("div");
       meta.className = "cardmeta";
       // 쪽 표시를 누르면 그 쪽으로 간다 — 목록에서 자료로 되짚어 가는 길
-      var jumpable = !(card.qna && card.scope === "all");
+      var jumpable = !(card.qna && (card.scope === "all" || card.scope === "chat"));
       var pg = document.createElement(jumpable ? "button" : "span");
       if (jumpable) {
         pg.className = "gopage";
         pg.title = card.page + "쪽으로 갑니다";
         pg.onclick = function () { gotoPage(card.page); };
       }
-      pg.textContent = (card.qna && card.scope === "all" ? "전체" : card.page + "쪽") +
-                       (card.qna ? " · 질문" : "");
+      // 대화는 쪽도 "질문"도 붙이지 않는다 — 자료와 상관없는 말이라 그 편이 맞다
+      pg.textContent = card.qna && card.scope === "chat"
+        ? "대화"
+        : (card.qna && card.scope === "all" ? "전체" : card.page + "쪽") +
+          (card.qna ? " · 질문" : "");
       if (card.mode && !card.qna) {
         var tag = document.createElement("span");
         tag.className = "modetag";
@@ -2485,9 +2660,8 @@
 
       var txt = document.createElement("div");
       txt.className = "cardtext" + (card.pending ? " loading" : "");
-      txt.textContent = card.pending
-        ? (card.qna ? "답하는 중…" : "정리하는 중…")
-        : card.summary;
+      if (card.pending) txt.textContent = card.qna ? "답하는 중…" : "정리하는 중…";
+      else renderText(txt, card.summary);
       body.appendChild(txt);
 
       if (card.detail) {
@@ -2495,7 +2669,7 @@
         det.className = "cardtext";
         det.style.marginTop = "9px";
         det.style.color = "var(--muted)";
-        det.textContent = card.detail;
+        renderText(det, card.detail);
         body.appendChild(det);
       }
 
@@ -3383,7 +3557,7 @@
           } else if (c.manual) {
             lines.push("- (직접 쓴 메모) " + (c.memo || ""));
           } else if (c.qna) {
-            lines.push("### Q. " + (c.question || ""));
+            lines.push("### Q. " + (c.scope === "chat" ? "(대화) " : "") + (c.question || ""));
             lines.push("");
             lines.push(c.summary || "");
           } else {
@@ -3501,14 +3675,15 @@
       var head = c.hl
         ? (c.page + "쪽 · 형광펜")
         : c.qna
-          ? ((c.scope === "all" ? "전체" : c.page + "쪽") + " · 질문")
+          ? (c.scope === "chat" ? "대화"
+             : (c.scope === "all" ? "전체" : c.page + "쪽") + " · 질문")
           : (c.page + "쪽" + (c.mode ? " · " + c.mode : ""));
       text(head, 9.5, false, "#9a9a9a", 15);
 
       if (c.qna) {
         text("Q. " + (c.question || ""), 11.5, true, "#7a5c00", 17);
         y += 3;
-        text(c.summary || "", 10.5, false, "#222222", 15.5);
+        text(mdPlain(c.summary), 10.5, false, "#222222", 15.5);
       } else {
         var im = imgs[c.id];
         if (im && im.width) {
@@ -3521,9 +3696,9 @@
           cur.g.strokeRect(M, y, w, h);
           y += h + 10;
         }
-        if (c.memo) { text(c.memo, 11, true, "#7a5c00", 16); y += 2; }
-        text(c.summary || "", 10.5, false, "#222222", 15.5);
-        if (c.detail) { y += 4; text(c.detail, 10, false, "#555555", 15); }
+        if (c.memo) { text(mdPlain(c.memo), 11, true, "#7a5c00", 16); y += 2; }
+        text(mdPlain(c.summary), 10.5, false, "#222222", 15.5);
+        if (c.detail) { y += 4; text(mdPlain(c.detail), 10, false, "#555555", 15); }
       }
       y += 6;
     }
@@ -3633,7 +3808,8 @@
       ph.textContent = c.hl
         ? (c.page + "쪽 · 형광펜(" + penOf(c.color).name + ")")
         : c.qna
-          ? ((c.scope === "all" ? "전체" : c.page + "쪽") + " · 질문")
+          ? (c.scope === "chat" ? "대화"
+             : (c.scope === "all" ? "전체" : c.page + "쪽") + " · 질문")
           : (c.page + "쪽" + (c.mode ? " · " + c.mode : ""));
       var pb = document.createElement("div");
       pb.className = "pib";
@@ -3718,6 +3894,7 @@
    * 맞춰 둔 자리와 크기가 그대로 나간다.
    */
   function memoToPng(text, manual, fs) {
+    text = mdPlain(text);                  // 종이에는 별표가 그대로 남으면 지저분하다
     var dim = memoDims(fs);
     var lines = memoLines(text, fs);
     var size = memoSize(lines, fs);
@@ -3953,14 +4130,46 @@
   applyNoteFs();
 
   // PDF만 확대·축소한다. 화면 전체가 커지면 정리 패널까지 같이 흔들린다
+  /*
+   * 확대·축소는 눈에 먼저 보여야 한다.
+   *
+   * 전에는 배율이 바뀔 때마다 그 쪽을 처음부터 다시 그렸다. 휠을 한 번 굴리면
+   * 이벤트가 열댓 번 오니 그만큼 다시 그렸고, 다 그릴 때까지 화면은 그대로라
+   * 굼떠 보였다. 게다가 배율이 바뀌면 미리 그려 둔 쪽이 전부 못 쓰게 돼,
+   * 한 눈금 움직일 때마다 문서 전체를 다시 그리는 일이 뒤에서 돌았다.
+   *
+   * 이제 이미 그려 둔 그림을 CSS로 늘려 그 자리에서 보여 주고(잠깐 흐릿하다),
+   * 손을 멈춘 뒤에 한 번만 또렷하게 다시 그린다. 메모·형광펜이 얹힌 층도
+   * 같이 늘려야 글자와 어긋나지 않는다.
+   */
+  function previewZoom() {
+    var wrap = document.querySelector(".pagewrap");
+    if (!wrap || !state.canvas || !state.layer || !state.drawnScale) return;
+    var k = state.scale / state.drawnScale;
+    var w = state.canvas.width / state.dprUsed, h = state.canvas.height / state.dprUsed;
+    state.canvas.style.width = (w * k) + "px";
+    state.canvas.style.height = (h * k) + "px";
+    wrap.style.width = (w * k) + "px";
+    state.layer.style.width = w + "px";     // 층은 늘리기 전 크기로 못 박고
+    state.layer.style.height = h + "px";
+    state.layer.style.transformOrigin = "top left";
+    state.layer.style.transform = k === 1 ? "none" : "scale(" + k + ")";
+  }
+
+  var zoomTimer = null;
   function zoomPdf(d) {
     if (!state.pdf) return;
-    var next = Math.max(0.25, Math.min(4, state.scale + d));
+    var next = Math.max(0.25, Math.min(4, Math.round((state.scale + d) * 1000) / 1000));
     if (Math.abs(next - state.scale) < 0.001) return;
     state.scale = next;
     state.userZoomed = true;
-    closeMemoEdit();
-    renderPage();
+    previewZoom();
+    clearTimeout(zoomTimer);
+    zoomTimer = setTimeout(function () {
+      zoomTimer = null;
+      closeMemoEdit();
+      renderPage();
+    }, 120);
   }
 
   /*
