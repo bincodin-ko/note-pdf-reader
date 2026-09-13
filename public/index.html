@@ -1193,8 +1193,16 @@
       var w = (it.width || 0) * state.scale;
       var x = t[4] / d, base = t[5] / d;
       if (!(w > 0 && h > 0)) return;
+      /*
+       * 글자 중심이 그은 네모 안에 드는지로 따지면, 두 줄 사이를 스치듯 그었을
+       * 때 위아래 어느 줄도 안 잡혀 줄에 붙지 못하고 그은 자리가 그대로
+       * 칠해졌다. 얼마나 겹쳤는지로 따진다 — 스친 줄이 잡힌다.
+       */
       var top = base - h, cx = x + w / 2, cy = base - h / 2;
-      if (cx < rect.x || cx > rect.x + rect.w || cy < rect.y || cy > rect.y + rect.h) return;
+      var ovY = Math.min(top + h, rect.y + rect.h) - Math.max(top, rect.y);
+      var ovX = Math.min(x + w, rect.x + rect.w) - Math.max(x, rect.x);
+      if (ovY < h * 0.4) return;
+      if (ovX < Math.min(w, rect.w) * 0.15) return;
       items.push({ x: x, y: top, w: w, h: h, cy: cy });
     });
     if (!items.length) return null;
@@ -1810,6 +1818,31 @@
     return cv;
   }
 
+  /*
+   * 오려낸 그림 위에 그 쪽의 형광펜 자국을 얹는다.
+   * 원본에서 다시 그려 오면 형광펜은 우리가 화면에만 그려 둔 것이라 빠진다.
+   * 곱하기로 얹어야 글자가 비쳐 화면에서 보던 것과 같아진다.
+   */
+  function paintMarksOn(cv, pageNo, r) {
+    if (!state.marks.length) return cv;
+    var g = cv.getContext("2d");
+    g.save();
+    g.globalCompositeOperation = "multiply";
+    state.marks.forEach(function (m) {
+      if (m.page !== pageNo) return;
+      var c = penOf(m.color).rgb;
+      g.fillStyle = "rgb(" + Math.round(c[0] * 255) + "," +
+                             Math.round(c[1] * 255) + "," +
+                             Math.round(c[2] * 255) + ")";
+      m.rects.forEach(function (q) {
+        g.fillRect((q.x - r.x) / r.w * cv.width, (q.y - r.y) / r.h * cv.height,
+                   q.w / r.w * cv.width, q.h / r.h * cv.height);
+      });
+    });
+    g.restore();
+    return cv;
+  }
+
   function shrinkTo(cv, maxW) {
     if (cv.width <= maxW) return cv;
     var out = document.createElement("canvas");
@@ -1842,6 +1875,38 @@
     var page = await state.pdf.getPage(pageNo);
     _tcCache[pageNo] = await page.getTextContent();
     return _tcCache[pageNo];
+  }
+
+  /*
+   * 형광펜 띠에 걸친 글자를 뽑는다.
+   *
+   * 글자 중심이 띠 안에 드는지로 따지면, 띠가 글줄에 딱 붙어 있어 아슬아슬하게
+   * 빠진다. 그렇다고 띠를 넓혀 잡으면 윗줄 아랫줄이 통째로 따라 들어온다.
+   * 글자 상자와 띠가 세로로 얼마나 겹치는지로 따지면 둘 다 피할 수 있다.
+   *
+   * 쪽 번호를 받는 것도 뜻이 있다 — textInRect는 지금 보고 있는 쪽의 화면
+   * 좌표만 받아서 다른 쪽에 그은 형광펜을 읽을 수 없었다.
+   */
+  async function textUnderBands(pageNo, rects) {
+    try {
+      var pg = await state.pdf.getPage(pageNo);
+      var vp = pg.getViewport({ scale: 1 });
+      var tc = await textContentOf(pageNo);
+      var out = [];
+      tc.items.forEach(function (it) {
+        var t = pdfjsLib.Util.transform(vp.transform, it.transform);
+        var h = Math.hypot(t[2], t[3]) / vp.height;
+        var y = t[5] / vp.height - h;                  // 글자 상자 위쪽
+        var cx = (t[4] + (it.width || 0) / 2) / vp.width;
+        for (var i = 0; i < rects.length; i++) {
+          var r = rects[i];
+          if (cx < r.x || cx > r.x + r.w) continue;
+          var ov = Math.min(y + h, r.y + r.h) - Math.max(y, r.y);
+          if (ov > h * 0.5) { out.push(it.str); return; }
+        }
+      });
+      return out.join(" ").replace(/\s+/g, " ").trim().slice(0, 2500);
+    } catch (e) { return ""; }
   }
 
   async function textInRect(rect) {
@@ -3308,7 +3373,9 @@
         lines.push("## " + pg + "쪽");
         lines.push("");
         byPage[pg].forEach(function (c) {
-          if (c.manual) {
+          if (c.hl) {
+            lines.push("- (형광펜) " + (c.summary || "그은 자리"));
+          } else if (c.manual) {
             lines.push("- (직접 쓴 메모) " + (c.memo || ""));
           } else if (c.qna) {
             lines.push("### Q. " + (c.question || ""));
@@ -3365,8 +3432,11 @@
     var imgs = {};
     await Promise.all(cards.map(async function (c) {
       if (!c.qna && state.pdf && c.rect && c.rect.w > 0 && c.page >= 1 && c.page <= state.pages) {
-        try { imgs[c.id] = await cropFromPdf(c.page, c.rect, Math.round(CW * K)); return; }
-        catch (e) { /* 아래에서 들고 있던 그림으로 간다 */ }
+        try {
+          // 형광펜은 우리가 화면에만 그려 둔 것이라, 여기서 다시 얹어야 보인다
+          imgs[c.id] = paintMarksOn(await cropFromPdf(c.page, c.rect, Math.round(CW * K)), c.page, c.rect);
+          return;
+        } catch (e) { /* 아래에서 들고 있던 그림으로 간다 */ }
       }
       if (!c.img) return;
       await new Promise(function (res) {
@@ -3423,9 +3493,11 @@
         y += 18;
       }
 
-      var head = c.qna
-        ? ((c.scope === "all" ? "전체" : c.page + "쪽") + " · 질문")
-        : (c.page + "쪽" + (c.mode ? " · " + c.mode : ""));
+      var head = c.hl
+        ? (c.page + "쪽 · 형광펜")
+        : c.qna
+          ? ((c.scope === "all" ? "전체" : c.page + "쪽") + " · 질문")
+          : (c.page + "쪽" + (c.mode ? " · " + c.mode : ""));
       text(head, 9.5, false, "#9a9a9a", 15);
 
       if (c.qna) {
@@ -3464,11 +3536,44 @@
    * 무엇을 내보낼지 고르는 창.
    * 전부 담아 봐야 쓸모없는 것도 섞여 나오므로 항목을 고를 수 있어야 한다.
    */
-  function showSummaryPicker() {
+  /*
+   * 형광펜 그은 자리도 정리에 넣는다.
+   *
+   * 그어 놓고 정리 PDF를 열면 그 대목이 아예 없었다. 수업 중에는 오려내지
+   * 않고 형광펜만 긋고 지나가는 일이 더 많다. 자국 하나를 항목 하나로 삼아
+   * 그 자리를 그림으로 담고, 밑에 그 자리의 원문을 적는다.
+   */
+  async function markItems() {
+    var out = [];
+    for (var i = 0; i < state.marks.length; i++) {
+      var m = state.marks[i];
+      if (!m.rects || !m.rects.length) continue;
+      var x0 = 1, y0 = 1, x1 = 0, y1 = 0;
+      m.rects.forEach(function (r) {
+        x0 = Math.min(x0, r.x); y0 = Math.min(y0, r.y);
+        x1 = Math.max(x1, r.x + r.w); y1 = Math.max(y1, r.y + r.h);
+      });
+      // 그림은 앞뒤를 조금 넓혀 잘라야 무슨 대목인지 안다. 글은 그은 띠에서만 뽑는다
+      var px = 0.015, py = 0.022;
+      var rect = {
+        x: Math.max(0, x0 - px), y: Math.max(0, y0 - py),
+        w: Math.min(1, x1 + px) - Math.max(0, x0 - px),
+        h: Math.min(1, y1 + py) - Math.max(0, y0 - py)
+      };
+      out.push({
+        id: "hl:" + m.id, page: m.page, hl: true, color: m.color,
+        rect: rect, memo: "", summary: await textUnderBands(m.page, m.rects)
+      });
+    }
+    return out.sort(function (a, b) { return a.page - b.page; });
+  }
+
+  async function showSummaryPicker() {
     var list = state.cards.filter(function (c) {
       return c.qna ? c.summary : (!c.manual && (c.summary || c.memo));
     });
-    if (!list.length) { setStatus("내보낼 정리가 아직 없습니다."); return; }
+    list = list.concat(await markItems());
+    if (!list.length) { setStatus("내보낼 정리도 형광펜도 아직 없습니다."); return; }
 
     closeSheet();
     var veil = document.createElement("div");
@@ -3487,7 +3592,7 @@
     body.className = "sbody";
     var note = document.createElement("p");
     note.className = "note";
-    note.textContent = "내보낼 항목을 고르세요. 오려낸 그림과 설명이 함께 들어갑니다.";
+    note.textContent = "내보낼 항목을 고르세요. 오려낸 그림과 설명, 형광펜 그은 대목이 함께 들어갑니다.";
     body.appendChild(note);
 
     var bar = document.createElement("div");
@@ -3520,12 +3625,15 @@
       pi.className = "pi";
       var ph = document.createElement("div");
       ph.className = "pih";
-      ph.textContent = c.qna
-        ? ((c.scope === "all" ? "전체" : c.page + "쪽") + " · 질문")
-        : (c.page + "쪽" + (c.mode ? " · " + c.mode : ""));
+      ph.textContent = c.hl
+        ? (c.page + "쪽 · 형광펜(" + penOf(c.color).name + ")")
+        : c.qna
+          ? ((c.scope === "all" ? "전체" : c.page + "쪽") + " · 질문")
+          : (c.page + "쪽" + (c.mode ? " · " + c.mode : ""));
       var pb = document.createElement("div");
       pb.className = "pib";
-      pb.textContent = c.qna ? (c.question || "") : (c.memo || c.summary || "");
+      pb.textContent = c.qna ? (c.question || "")
+                     : (c.memo || c.summary || (c.hl ? "그은 자리" : ""));
       pi.appendChild(ph); pi.appendChild(pb);
 
       row.appendChild(cb);
