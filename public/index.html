@@ -3680,6 +3680,13 @@
     return n;
   }
 
+  /*
+   * 카드 정보를 PDF 안에 적어 둔다. 이 파일을 다시 우리 앱에서 열면 메모를
+   * 그대로 되살려 고칠 수 있다.
+   *
+   * 성공했는지를 돌려준다. 전에는 조용히 삼켰는데, 그러면 "메모를 넣었다"고
+   * 안내해 놓고 실제로는 못 심은 파일이 나가도 알 길이 없었다.
+   */
   function saveCardsIntoPdf(doc, cards, carriedMarks) {
     try {
       var slim = cards.map(function (c) {
@@ -3690,12 +3697,21 @@
         });
         return o;
       });
-      var info = doc.context.lookup(doc.context.trailerInfo.Info);
+      // Info 사전이 아예 없는 PDF도 있다. 그럴 땐 만들어 붙인다
+      var info = doc.context.trailerInfo.Info
+        ? doc.context.lookup(doc.context.trailerInfo.Info) : null;
+      if (!info || typeof info.set !== "function") {
+        info = doc.context.obj({});
+        doc.context.trailerInfo.Info = doc.context.register(info);
+      }
       info.set(PDFLib.PDFName.of(CAPNOTE_KEY),
                PDFLib.PDFHexString.fromText(JSON.stringify({
                  v: 1, name: state.docName, cards: slim, marks: carriedMarks
                })));
-    } catch (e) { /* 못 심어도 PDF 자체는 나가야 한다 */ }
+      return true;
+    } catch (e) {
+      return false;
+    }
   }
 
   async function readCardsFromPdf(pdf) {
@@ -4311,7 +4327,7 @@
   $("expPdf").onclick = async function () {
     var inserted = state.cards.filter(function (c) { return c.inserted; });
     if (!inserted.length && !state.marks.length) {
-      setStatus("PDF에 붙인 메모도 형광펜도 아직 없습니다.");
+      setStatus("쪽에 붙인 메모도 형광펜도 아직 없습니다. 정리 카드에서 \"예\"를 눌러 붙이거나 빈 곳을 두 번 눌러 메모를 쓰세요.", true);
       return;
     }
 
@@ -4375,9 +4391,12 @@
       // 이전에 넣은 우리 주석(메모·형광펜)을 모두 걷어낸 뒤 새로 넣는다
       doc.getPages().forEach(function (pg) { removeMemoAnnots(doc, pg); });
 
+      var putMarks = 0, putMemos = 0, skipped = [];
+
       state.marks.forEach(function (mk) {
         var op = outPage(mk.page);
         if (!op || op < 1 || op > doc.getPageCount()) return;
+        putMarks++;
         var pg = doc.getPage(op - 1);
         var pw = pg.getWidth(), ph = pg.getHeight();
         var rgb = penOf(mk.color).rgb;
@@ -4399,7 +4418,7 @@
       for (var i = 0; i < inserted.length; i++) {
         var card = inserted[i];
         var op = outPage(card.page);
-        if (!op) continue;
+        if (!op || op < 1 || op > doc.getPageCount()) { skipped.push(card.page); continue; }
         var pg = doc.getPage(op - 1);
         var pw = pg.getWidth(), ph = pg.getHeight();
 
@@ -4437,6 +4456,7 @@
         var y = Math.max(m, Math.min(ph - pin.y * ph - memo.h, ph - memo.h - m));
         if (burn) pg.drawImage(png, { x: x, y: y, width: memo.w, height: memo.h });
         else addMemoAnnot(doc, pg, png.ref, x, y, memo.w, memo.h);
+        putMemos++;
       }
 
       /*
@@ -4466,15 +4486,44 @@
        * 두 겹으로 보인다. 이어서 고칠 때는 원본을 열면 된다 — 메모는 원본
        * 이름으로 브라우저에 남아 있다.
        */
-      if (!burn) saveCardsIntoPdf(doc, carriedCards, carriedMarks);
+      var carried = burn ? false : saveCardsIntoPdf(doc, carriedCards, carriedMarks);
 
       var out = await doc.save();
+
+      /*
+       * 무엇을 정말 넣었는지 세어서 말한다.
+       *
+       * 전에는 붙인 메모 수를 그대로 적었다. 그래서 한 개도 못 넣은 파일에도
+       * "메모 3개"라고 적혀 나갔고, 뭐가 잘못됐는지 알 길이 없었다.
+       */
+      var note = "메모 " + putMemos + "개" +
+                 (putMarks ? " · 형광펜 " + putMarks + "곳" : "") +
+                 " · " + doc.getPageCount() + "쪽입니다. ";
+      /*
+       * 메모가 한 개도 안 나갔으면 그 말부터 한다.
+       *
+       * 쪽에 붙인 메모만 나간다 — 정리 카드에 글이 있어도 "예"를 눌러 붙이지
+       * 않았으면 PDF에는 넣을 자리가 없다. 그걸 모르면 "원본이 하나 더 생겼다"로만
+       * 보인다.
+       */
+      if (!putMemos) {
+        note = "메모가 한 개도 안 들어갔습니다 — 쪽에 붙인 메모만 나갑니다. " +
+               "오른쪽 정리 카드에서 \"예\"를 눌러 붙이거나, 쪽의 빈 곳을 두 번 눌러 직접 메모를 쓰세요. " +
+               (putMarks ? "형광펜 " + putMarks + "곳은 들어갔습니다. " : "") +
+               doc.getPageCount() + "쪽입니다. ";
+      }
+      if (skipped.length) {
+        note += "메모 " + skipped.length + "개는 이 파일에 없는 쪽(" +
+                skipped.slice(0, 5).join(", ") + "쪽)이라 빠졌습니다. ";
+      }
+      note += burn
+        ? "메모를 페이지에 구웠습니다. 어떤 뷰어에서도 보이지만 이 파일로는 다시 고칠 수 없습니다 — 이어서 고칠 때는 원본을 여세요."
+        : carried
+          ? "메모가 PDF 주석으로 들어갔습니다. 이 파일을 다시 이 앱에 열면 그대로 고칠 수 있지만, 주석을 안 그리는 뷰어에서는 메모가 안 보입니다 — 그때는 \"굽기\"를 켜고 다시 내보내세요."
+          : "메모가 PDF 주석으로 들어갔지만, 다시 고치기 위한 정보는 심지 못했습니다. 이 파일을 다시 열면 메모가 안 보일 수 있습니다 — \"굽기\"를 켜고 다시 내보내세요.";
+
       showExport("페이지 추출", {
-        note: "메모 " + carriedCards.filter(function (c) { return c.inserted; }).length +
-              "개 · " + doc.getPageCount() + "쪽입니다. " +
-              (burn
-                ? "메모를 페이지에 구웠습니다. 어떤 뷰어에서도 보이지만 이 파일로는 다시 고칠 수 없습니다 — 이어서 고칠 때는 원본을 여세요."
-                : "메모가 PDF 주석으로 들어갔습니다. 이 파일을 다시 이 앱에 열면 그대로 고칠 수 있지만, 주석을 안 그리는 뷰어에서는 메모가 안 보입니다 — 그때는 \"굽기\"를 켜고 다시 내보내세요."),
+        note: note,
         blob: new Blob([out], { type: "application/pdf" }),
         filename: state.docName + " 메모.pdf"
       });
