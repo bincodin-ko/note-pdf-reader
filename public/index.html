@@ -173,6 +173,29 @@
     padding: 6px 8px;
   }
   .apfree button { font-size: 12px; padding: 6px 9px; flex: 0 0 auto; }
+  .apbulk { margin-top: 8px; border-top: 1px solid var(--rule); padding-top: 8px; }
+  .apbulk button { width: 100%; font-size: 12.5px; padding: 7px 9px; }
+
+  /* 모든 쪽 정리 창 */
+  .bulkrow {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin-top: 10px;
+    font-size: 13px;
+    color: var(--muted);
+    flex-wrap: wrap;
+  }
+  .bulkrow input, .bulkrow select {
+    font: inherit;
+    font-size: 13px;
+    color: var(--text);
+    background: var(--ink);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 6px 8px;
+  }
+  .bulkrow input { width: 68px; text-align: center; }
   .toggle input { accent-color: var(--marker); width: 15px; height: 15px; }
 
   .main {
@@ -950,6 +973,9 @@
       <div class="apfree">
         <input id="autoFree" type="text" maxlength="120" placeholder="직접 쓴 요청으로" />
         <button id="autoFreeGo">쓰기</button>
+      </div>
+      <div class="apbulk">
+        <button id="bulkAll" title="쪽마다 한 번씩 물어 정리를 붙입니다">모든 쪽 지금 정리하기</button>
       </div>
     </div>
   </div>
@@ -2480,6 +2506,8 @@
       state.auto = { free: t };
       renderAuto(); closeAuto();
     };
+    $("bulkAll").onclick = function () { showBulkSheet(); };
+
     $("autoFree").addEventListener("keydown", function (e) {
       e.stopPropagation();                 // Delete·Ctrl+Z 단축키가 끼어들지 않게
       if (e.key === "Enter") { e.preventDefault(); $("autoFreeGo").onclick(); }
@@ -2487,6 +2515,202 @@
 
     renderAuto();
   })();
+
+  /*
+   * 모든 쪽 정리.
+   *
+   * 쪽마다 AI를 한 번씩 부른다 — 쪽이 많으면 그만큼 걸린다. "순식간"은 만들 수
+   * 없으니 대신 몇 쪽씩 나란히 돌리고, 끝나는 대로 바로 붙이고, 언제든 멈출 수
+   * 있게 했다. 이미 정리해 둔 쪽은 건너뛴다 — 두 번 물으면 시간만 든다.
+   */
+  var BULK_AT_ONCE = 3;
+  var bulk = null;
+
+  async function summarizePage(pageNo, mode) {
+    var shot = await cropFromPdf(pageNo, { x: 0, y: 0, w: 1, h: 1 }, 1100);
+    var txt = "";
+    try {
+      var tc = await textContentOf(pageNo);
+      txt = tc.items.map(function (x) { return x.str; }).join(" ")
+              .replace(/\s+/g, " ").trim().slice(0, 3000);
+    } catch (e) { /* 글자가 없어도 그림으로 답한다 */ }
+
+    var content = [
+      { type: "image", source: { type: "base64", media_type: "image/jpeg",
+                                 data: shot.toDataURL("image/jpeg", 0.75).split(",")[1] } },
+      { type: "text", text:
+          "대학 강의자료 " + pageNo + "쪽 전체입니다.\n" +
+          (txt ? "이 쪽의 원문 텍스트: " + txt + "\n" : "") +
+          "\n" + modeHow(mode) + "\n" +
+          "\n한국어로 답하고, 아래 JSON만 출력하세요. 설명이나 코드블록 표시는 넣지 마세요.\n" +
+          "글 안에도 마크다운 표시(**, ##)는 쓰지 마세요. 목록은 \"- \"로만 적으세요.\n" +
+          '{"memo": "PDF에 붙일 핵심 3~5줄. 각 줄 28자 이내로 끊고 줄바꿈 \\n 으로 구분. ' +
+          '나중에 이 줄만 봐도 무슨 내용인지 알 수 있게 구체적으로.", ' +
+          '"summary": "위에서 시킨 대로 쓴 본문"}' }
+    ];
+
+    var raw = await callClaude([{ role: "user", content: content }]);
+    var clean = raw.replace(/```json|```/g, "").trim();
+    var parsed;
+    try { parsed = JSON.parse(clean); }
+    catch (e) { parsed = { memo: clean.slice(0, 60), summary: clean }; }
+
+    var card = {
+      id: "b" + pageNo + "-" + Date.now(),
+      page: pageNo,
+      mode: modeLabel(mode),
+      bulk: true,
+      rect: { x: 0, y: 0, w: 0, h: 0 },   // 오려낸 자리가 없다 — 테두리도 안 만든다
+      memo: (parsed.memo || "").slice(0, 300),
+      summary: parsed.summary || clean,
+      detail: "",
+      inserted: true
+    };
+    state.cards.push(card);
+    await placeMemoFor(card);
+    saveCard(card);
+  }
+
+  function bulkStatus() {
+    var el = $("status");
+    el.className = "status";
+    el.textContent = "모든 쪽 정리 " + bulk.done + " / " + bulk.total + "쪽… ";
+    var b = document.createElement("button");
+    b.textContent = "멈추기";
+    b.onclick = function () { if (bulk) bulk.stop = true; };
+    el.appendChild(b);
+  }
+
+  async function runBulk(from, to, mode) {
+    if (bulk) { setStatus("이미 정리하는 중입니다."); return; }
+
+    var todo = [];
+    for (var p = from; p <= to; p++) {
+      var has = state.cards.some(function (c) {
+        return c.page === p && c.inserted && !c.manual && !c.qna;
+      });
+      if (!has) todo.push(p);
+    }
+    if (!todo.length) { setStatus("그 범위는 이미 다 정리돼 있습니다."); return; }
+
+    bulk = { stop: false, done: 0, total: todo.length, fail: 0 };
+    var atStart = state.docKey, idx = 0, pending = false;
+    bulkStatus();
+
+    // 쪽마다 다시 그리면 카드가 많을 때 화면이 버벅인다. 조금 모아서 그린다
+    function soft() {
+      if (pending) return;
+      pending = true;
+      setTimeout(function () { pending = false; renderCards(); drawMemos(); }, 350);
+    }
+
+    async function worker() {
+      while (bulk && !bulk.stop) {
+        var n = todo[idx++];
+        if (n == null) return;
+        try { await summarizePage(n, mode); }
+        catch (e) { if (bulk) bulk.fail++; }
+        if (!bulk) return;
+        if (state.docKey !== atStart) { bulk.stop = true; return; }   // 다른 자료로 옮겼다
+        bulk.done++;
+        bulkStatus();
+        soft();
+      }
+    }
+
+    var runners = [];
+    for (var i = 0; i < Math.min(BULK_AT_ONCE, todo.length); i++) runners.push(worker());
+    await Promise.all(runners);
+
+    var stopped = bulk.stop, done = bulk.done, fail = bulk.fail;
+    bulk = null;
+    renderCards(); drawMemos();
+    setStatus((stopped ? "멈췄습니다. " : "") + done + "쪽 정리해 붙였습니다." +
+              (fail ? " " + fail + "쪽은 받아오지 못했습니다." : ""));
+  }
+
+  function showBulkSheet() {
+    if (!state.pdf) { setStatus("먼저 PDF를 여세요."); closeAuto(); return; }
+    closeSheet();
+    closeAuto();
+
+    var veil = document.createElement("div");
+    veil.className = "veil";
+    veil.addEventListener("pointerdown", function (e) { if (e.target === veil) closeSheet(); });
+    var sheet = document.createElement("div");
+    sheet.className = "sheet";
+    sheet.addEventListener("pointerdown", function (e) { e.stopPropagation(); });
+
+    var h = document.createElement("h3");
+    h.textContent = "모든 쪽 정리";
+    sheet.appendChild(h);
+
+    var body = document.createElement("div");
+    body.className = "sbody";
+    var note = document.createElement("p");
+    note.className = "note";
+    note.textContent = "쪽마다 한 번씩 물어 정리를 붙입니다. " + state.pages +
+                       "쪽이면 그만큼 걸립니다(한 쪽에 몇 초, " + BULK_AT_ONCE +
+                       "쪽씩 나란히 돌립니다). 이미 정리해 둔 쪽은 건너뜁니다. " +
+                       "도중에 멈출 수 있고, 그때까지 붙인 것은 남습니다.";
+    body.appendChild(note);
+
+    var row = document.createElement("div");
+    row.className = "bulkrow";
+    var from = document.createElement("input");
+    from.type = "number"; from.min = "1"; from.max = String(state.pages);
+    from.value = "1";
+    var to = document.createElement("input");
+    to.type = "number"; to.min = "1"; to.max = String(state.pages);
+    to.value = String(state.pages);
+    var dash = document.createElement("span");
+    dash.textContent = "–";
+    var tail = document.createElement("span");
+    tail.textContent = "쪽";
+    row.appendChild(document.createTextNode("범위"));
+    row.appendChild(from); row.appendChild(dash); row.appendChild(to); row.appendChild(tail);
+    body.appendChild(row);
+
+    var row2 = document.createElement("div");
+    row2.className = "bulkrow";
+    var sel = document.createElement("select");
+    ASK_MODES.forEach(function (m, i) {
+      var o = document.createElement("option");
+      o.value = String(i);
+      o.textContent = modeLabel(m);
+      sel.appendChild(o);
+    });
+    // 지금 자동 넣기로 정해 둔 방식이 있으면 그것을 먼저 보여 준다
+    if (state.auto && state.auto.mode) {
+      ASK_MODES.forEach(function (m, i) { if (m.id === state.auto.mode.id) sel.value = String(i); });
+    }
+    row2.appendChild(document.createTextNode("방식"));
+    row2.appendChild(sel);
+    body.appendChild(row2);
+    sheet.appendChild(body);
+
+    var foot = document.createElement("div");
+    foot.className = "sfoot";
+    var go = document.createElement("button");
+    go.className = "primary";
+    go.textContent = "시작";
+    go.onclick = function () {
+      var a = Math.max(1, Math.min(state.pages, parseInt(from.value, 10) || 1));
+      var b = Math.max(1, Math.min(state.pages, parseInt(to.value, 10) || state.pages));
+      if (b < a) { var t = a; a = b; b = t; }
+      closeSheet();
+      runBulk(a, b, ASK_MODES[parseInt(sel.value, 10) || 0]);
+    };
+    var sp = document.createElement("div");
+    sp.className = "spacer";
+    var close = document.createElement("button");
+    close.textContent = "닫기";
+    close.onclick = closeSheet;
+    foot.appendChild(go); foot.appendChild(sp); foot.appendChild(close);
+    sheet.appendChild(foot);
+    veil.appendChild(sheet);
+    $("root").appendChild(veil);
+  }
 
   // 오려낸 원본 그림과 원문은 카드에 넣지 않는다. 저장소에 들어가면 무겁다
   var pendingCrops = {};
@@ -3085,7 +3309,8 @@
       var el = document.createElement("div");
       el.className = "card" + (card.qna ? " qna" : "");
 
-      if (!card.qna) {                      // 질문 카드는 오려낸 그림이 없다
+      // 질문 카드와 쪽 전체 정리에는 오려낸 그림이 없다. 빈 자리를 만들지 않는다
+      if (!card.qna && card.img) {
         var img = document.createElement("img");
         img.src = card.img;
         img.alt = card.page + "쪽에서 오려낸 부분";
