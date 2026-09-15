@@ -3910,26 +3910,22 @@
   var MEMO_W_MAX = 250, MEMO_W_MIN = 64;   // 8.5pt 기준. 글자를 키우면 같이 는다
 
   /*
-   * 어디서 접어도 되는지 나눈다.
+   * 어디서 접어도 되는지 나눈다 — 띄어쓰기 자리에서만.
    *
-   * 한글은 글자 사이 아무 데서나 접어도 읽히지만 "15uA", "ECG", "3.5" 같은
-   * 라틴 글자·숫자 토막은 가운데가 잘리면 못 읽는다. 그래서 그런 토막은 한
-   * 덩어리로 묶고, 공백과 닫는 부호(마침표·쉼표·괄호)는 앞 덩어리에 붙여
-   * 줄 첫머리로 떨어지지 않게 한다.
+   * 한글은 글자 사이 아무 데서나 접어도 규칙에는 맞다. 그래서 전에는 글자
+   * 단위로 접었는데, 그러면 "조직을"이 "조 / 직을"로 갈라져 읽다가 걸린다.
+   * 상자 폭에 글을 억지로 맞추는 꼴이다. 접는 자리는 글이 정하고 폭이
+   * 따라와야 한다. 한 어절이 상자보다 길 때만(긴 영어 낱말 따위) 어쩔 수
+   * 없이 쪼갠다 — wrapUnits가 그때만 글자로 내려간다.
    */
-  var MEMO_TAIL = ".,)]}\u00b7:;!?%\u2026\u203a\u300b\u300d\u300f\u201d\u2019";
   function breakUnits(s) {
     var units = [], i = 0, j;
     while (i < s.length) {
-      if (/[A-Za-z0-9]/.test(s[i])) {
-        j = i;
-        while (j < s.length && /[A-Za-z0-9.\-\/%]/.test(s[j])) j++;
-        while (j - 1 > i && /[.\-\/]/.test(s[j - 1])) j--;    // 꼬리 부호는 떼어 낸다
-        units.push(s.slice(i, j)); i = j;
-      } else { units.push(s[i]); i++; }
-      while (i < s.length && (s[i] === " " || MEMO_TAIL.indexOf(s[i]) >= 0)) {
-        units[units.length - 1] += s[i]; i++;
-      }
+      j = s.indexOf(" ", i);
+      if (j < 0) { units.push(s.slice(i)); break; }
+      while (j + 1 < s.length && s[j + 1] === " ") j++;     // 연이은 공백은 앞에 붙인다
+      units.push(s.slice(i, j + 1));
+      i = j + 1;
     }
     return units;
   }
@@ -3968,25 +3964,35 @@
     var paras = String(text == null ? "" : text).split("\n").map(breakUnits);
     var step = Math.max(3, Math.round(d.fs / 2));
 
-    function at(w) {
-      var lines = [], used = 0, p, q, ls;
-      for (p = 0; p < paras.length; p++) {
-        ls = wrapUnits(paras[p], w, mw);
-        for (q = 0; q < ls.length; q++) { lines.push(ls[q]); used = Math.max(used, mw(ls[q])); }
+    /*
+     * 문장(줄) 하나를 접는다. 먼저 제일 넓게 잡아 줄 수를 최소로 만들고,
+     * 그 줄 수를 지키는 선에서 폭을 끝까지 줄인다. 좁히기는 폭을 아끼려는
+     * 것이기도 하지만 무엇보다 줄을 고르게 만든다 — 그리디로 접으면 마지막
+     * 줄에 한 어절만 남는("…기도 확보가 / 필요하다") 꼴이 나온다.
+     * 문장마다 따로 재야 한다. 다 같이 재면 긴 문장 하나 때문에 짧은
+     * 문장들까지 끌려간다.
+     */
+    function fold(units) {
+      var base = wrapUnits(units, hi, mw), n = base.length;
+      if (n < 2) return base;
+      for (var w = hi - step; w >= lo; w -= step) {
+        var ls = wrapUnits(units, w, mw);
+        if (ls.length > n) break;
+        base = ls;
       }
-      return {
-        lines: lines,
-        w: Math.max(Math.round(MEMO_W_MIN * k), Math.ceil(used) + edge),
-        h: d.pad * 2 + lines.length * d.lh
-      };
+      return base;
     }
 
-    var best = at(hi);                           // (1) 가장 적은 줄 수
-    for (var w = hi - step; w >= lo; w -= step) {    // (2) 그 줄 수를 지키며 좁히기
-      var box = at(w);
-      if (box.lines.length > best.lines.length) break;
-      best = box;
+    var lines = [], used = 0, p, q, ls;
+    for (p = 0; p < paras.length; p++) {
+      ls = fold(paras[p]);
+      for (q = 0; q < ls.length; q++) { lines.push(ls[q]); used = Math.max(used, mw(ls[q])); }
     }
+    var best = {
+      lines: lines,
+      w: Math.max(Math.round(MEMO_W_MIN * k), Math.ceil(used) + edge),
+      h: d.pad * 2 + lines.length * d.lh
+    };
 
     if (++_layoutN > 400) { _layout = {}; _layoutN = 1; }   // 오래 켜 둬도 안 불어나게
     _layout[key] = best;
