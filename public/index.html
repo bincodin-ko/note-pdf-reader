@@ -3898,26 +3898,99 @@
   /*
    * 줄바꿈을 한 곳에서만 계산해 화면과 PDF가 같은 줄을 쓰게 한다.
    * 각자 접으면 폰트 계산이 미묘하게 달라져 줄 수가 어긋난다.
+   *
+   * 폭을 190pt로 못 박아 두니 자리를 많이 버렸다. 한 문장이 애매하게 두 줄로
+   * 접혀 오른쪽이 늘 비었고, 짧은 메모도 같은 폭을 차지했다.
+   *
+   * 그래서 두 걸음으로 접는다. (1) 넓게 잡아 줄 수를 가장 적게 만들고,
+   * (2) 그 줄 수를 지키는 선에서 폭을 끝까지 줄인다. 상자 넓이를 줄이는 쪽으로
+   * 고르면 안 된다 — 글 넓이는 어차피 같아서, 좁고 긴 탑이 뽑힌다. 자료를
+   * 가리는 건 높이 쪽이라 납작한 편이 낫고, (2)가 오른쪽 빈자리를 없앤다.
    */
-  var _measure = null;
-  function memoLines(text, fs) {
-    var d = memoDims(fs);
-    if (!_measure) _measure = document.createElement("canvas").getContext("2d");
-    _measure.font = d.fs + "px sans-serif";
-    var max = d.w - d.pad * 2 - d.bar;
-    var lines = [], cur = "";
-    String(text == null ? "" : text).split("").forEach(function (ch) {
-      if (ch === "\n") { lines.push(cur); cur = ""; return; }
-      if (_measure.measureText(cur + ch).width > max) { lines.push(cur); cur = ch; }
-      else cur += ch;
-    });
-    if (cur || !lines.length) lines.push(cur);
+  var MEMO_W_MAX = 250, MEMO_W_MIN = 64;   // 8.5pt 기준. 글자를 키우면 같이 는다
+
+  /*
+   * 어디서 접어도 되는지 나눈다.
+   *
+   * 한글은 글자 사이 아무 데서나 접어도 읽히지만 "15uA", "ECG", "3.5" 같은
+   * 라틴 글자·숫자 토막은 가운데가 잘리면 못 읽는다. 그래서 그런 토막은 한
+   * 덩어리로 묶고, 공백과 닫는 부호(마침표·쉼표·괄호)는 앞 덩어리에 붙여
+   * 줄 첫머리로 떨어지지 않게 한다.
+   */
+  var MEMO_TAIL = ".,)]}\u00b7:;!?%\u2026\u203a\u300b\u300d\u300f\u201d\u2019";
+  function breakUnits(s) {
+    var units = [], i = 0, j;
+    while (i < s.length) {
+      if (/[A-Za-z0-9]/.test(s[i])) {
+        j = i;
+        while (j < s.length && /[A-Za-z0-9.\-\/%]/.test(s[j])) j++;
+        while (j - 1 > i && /[.\-\/]/.test(s[j - 1])) j--;    // 꼬리 부호는 떼어 낸다
+        units.push(s.slice(i, j)); i = j;
+      } else { units.push(s[i]); i++; }
+      while (i < s.length && (s[i] === " " || MEMO_TAIL.indexOf(s[i]) >= 0)) {
+        units[units.length - 1] += s[i]; i++;
+      }
+    }
+    return units;
+  }
+
+  function wrapUnits(units, max, mw) {
+    var lines = [], cur = "", i, u;
+    for (i = 0; i < units.length; i++) {
+      u = units[i];
+      if (mw(u) > max && u.length > 1) {          // 칸보다 긴 덩어리는 별수 없이 쪼갠다
+        units = units.slice(0, i).concat(u.split(""), units.slice(i + 1));
+        u = units[i];
+      }
+      var next = cur + u;
+      if (cur && mw(next.replace(/\s+$/, "")) > max) {
+        lines.push(cur.replace(/\s+$/, ""));
+        cur = u.replace(/^\s+/, "");
+      } else cur = next;
+    }
+    lines.push(cur.replace(/\s+$/, ""));
     return lines;
   }
 
-  function memoSize(lines, fs) {
+  var _measure = null, _layout = {}, _layoutN = 0;
+  function memoLayout(text, fs) {
     var d = memoDims(fs);
-    return { w: d.w, h: d.pad * 2 + lines.length * d.lh };
+    var key = d.fs + "\u0000" + (text == null ? "" : text);
+    if (_layout[key]) return _layout[key];
+
+    if (!_measure) _measure = document.createElement("canvas").getContext("2d");
+    _measure.font = d.fs + "px sans-serif";
+    var mw = function (t) { return _measure.measureText(t).width; };
+
+    var k = d.fs / MEMO_FS_BASE, edge = d.pad * 2 + d.bar;
+    var hi = Math.round(MEMO_W_MAX * k) - edge;
+    var lo = Math.max(20, Math.round(MEMO_W_MIN * k) - edge);
+    var paras = String(text == null ? "" : text).split("\n").map(breakUnits);
+    var step = Math.max(3, Math.round(d.fs / 2));
+
+    function at(w) {
+      var lines = [], used = 0, p, q, ls;
+      for (p = 0; p < paras.length; p++) {
+        ls = wrapUnits(paras[p], w, mw);
+        for (q = 0; q < ls.length; q++) { lines.push(ls[q]); used = Math.max(used, mw(ls[q])); }
+      }
+      return {
+        lines: lines,
+        w: Math.max(Math.round(MEMO_W_MIN * k), Math.ceil(used) + edge),
+        h: d.pad * 2 + lines.length * d.lh
+      };
+    }
+
+    var best = at(hi);                           // (1) 가장 적은 줄 수
+    for (var w = hi - step; w >= lo; w -= step) {    // (2) 그 줄 수를 지키며 좁히기
+      var box = at(w);
+      if (box.lines.length > best.lines.length) break;
+      best = box;
+    }
+
+    if (++_layoutN > 400) { _layout = {}; _layoutN = 1; }   // 오래 켜 둬도 안 불어나게
+    _layout[key] = best;
+    return best;
   }
 
   /*
@@ -4077,8 +4150,17 @@
       var W = slot.w, H = slot.h;
 
       var dim = memoDims(card.fs);
-      var lines = memoLines(card.memo || "", card.fs);
-      var size = memoSize(lines, card.fs);
+      // PDF에 심을 때도 별표를 떼므로(memoToPng) 화면에서도 같은 글로 접어야
+      // 상자 크기가 어긋나지 않는다. 고칠 때는 원문 그대로 보여 준다.
+      var box = memoLayout(mdPlain(card.memo || ""), card.fs);
+      var lines = box.lines;
+      /*
+       * 고치는 중에는 상자를 좁히지 않는다. 글칸 아래에 저장·빼기·글자 크기
+       * 단추가 나란히 들어가야 해서, 글에 맞춰 줄이면 단추가 무너진다.
+       */
+      var size = card.editingMemo
+        ? { w: Math.max(box.w, dim.w), h: Math.max(box.h, dim.pad * 2 + dim.lh * 3) }
+        : box;
       if (!card.pin) card.pin = fallbackPin(card, size);
 
       var el = document.createElement("div");
@@ -4099,6 +4181,16 @@
         ta.setAttribute("aria-label", "메모 내용");
         el.appendChild(ta);
         memoEditor = { card: card, ta: ta };
+
+        /*
+         * 치는 동안 상자가 글을 따라 늘게 한다. 저장할 때가 되어서야 모양이
+         * 바뀌면 자리를 다시 봐야 한다 — 치면서 바로 보이는 편이 낫다.
+         */
+        ta.addEventListener("input", function () {
+          var b = memoLayout(mdPlain(ta.value), card.fs);
+          el.style.width = (Math.max(b.w, dim.w) * k) + "px";
+          el.style.height = (Math.max(b.h, dim.pad * 2 + dim.lh * 3) * k) + "px";
+        });
 
         var acts = document.createElement("div");
         acts.className = "memoacts";
@@ -4473,7 +4565,7 @@
   }
 
   async function placeMemoFor(card) {
-    var size = memoSize(memoLines(card.memo || "", card.fs), card.fs);
+    var size = memoLayout(mdPlain(card.memo || ""), card.fs);
     // 두 쪽 보기면 그 카드가 붙은 쪽의 크기를 쓴다 (쪽마다 크기가 다를 수 있다)
     var sl = slotOf(card.page);
     var pw = sl ? sl.pw : state.pageW, ph = sl ? sl.ph : state.pageH;
@@ -4493,7 +4585,7 @@
     state.cards.forEach(function (c) {
       if (c.page !== card.page || c === card) return;
       if (c.inserted && c.pin) {                       // 이미 놓인 메모
-        var sz = memoSize(memoLines(c.memo || "", c.fs), c.fs);
+        var sz = memoLayout(mdPlain(c.memo || ""), c.fs);
         hard.push({ x: c.pin.x * pw, y: ph - c.pin.y * ph - sz.h, w: sz.w, h: sz.h });
       }
       if (!c.manual && !c.qna && c.rect && c.rect.w > 0) {   // 다른 오려낸 영역
@@ -4951,14 +5043,14 @@
   // 한글은 표준 PDF 폰트에 없으므로, 메모를 캔버스에 그려 이미지로 심는다
   /*
    * 메모를 PNG로 그린다. 한글이 pdf-lib 표준 폰트에 없어서 이미지로 심는다.
-   * 치수와 줄바꿈은 화면과 같은 값(MEMO, memoLines)을 쓴다 — 그래야 화면에서
+   * 치수와 줄바꿈은 화면과 같은 값(memoLayout)을 쓴다 — 그래야 화면에서
    * 맞춰 둔 자리와 크기가 그대로 나간다.
    */
   function memoToPng(text, manual, fs) {
     text = mdPlain(text);                  // 종이에는 별표가 그대로 남으면 지저분하다
     var dim = memoDims(fs);
-    var lines = memoLines(text, fs);
-    var size = memoSize(lines, fs);
+    var size = memoLayout(text, fs);
+    var lines = size.lines;
     var s = 3;                       // 인쇄해도 뭉개지지 않게 3배로 그린다
     var cv = document.createElement("canvas");
     cv.width = Math.round(size.w * s);
