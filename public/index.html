@@ -3062,6 +3062,42 @@
         }
       }
 
+      /*
+       * 물어본 답도 쪽에 붙일 수 있게 한다.
+       *
+       * 대화로 나눈 것까지 메모가 되면 수업 중에 떠올린 것을 그 자리에 남길 수
+       * 있다. 답은 길 수 있으니 붙일 때 짧게 줄이고, 바로 고칠 수 있게 편집칸을
+       * 연다 — 붙여 놓고 다듬는 게 자연스럽다.
+       */
+      if (!card.pending && !card.failed && card.qna) {
+        if (card.inserted) {
+          var qdone = document.createElement("div");
+          qdone.className = "done";
+          qdone.textContent = "PDF " + card.page + "쪽에 메모로 붙였습니다";
+          body.appendChild(qdone);
+        } else {
+          var qput = document.createElement("div");
+          qput.className = "more";
+          var qb = document.createElement("button");
+          qb.textContent = "이 답을 메모로 붙이기";
+          qb.title = "지금 보고 있는 쪽에 붙입니다";
+          qb.onclick = async function () {
+            card.memo = mdPlain(card.summary).replace(/\n{2,}/g, "\n").trim().slice(0, 300);
+            // 대화는 쪽에 매인 게 아니다. 지금 보고 있는 쪽에 붙인다
+            if (card.scope === "chat" || !card.page) card.page = state.page;
+            card.inserted = true;
+            card.declined = false;
+            if (!card.pin) await placeMemoFor(card);
+            saveCard(card);
+            closeMemoEdit();
+            card.editingMemo = true;        // 길면 바로 줄일 수 있게
+            renderCards(); drawMemos();
+          };
+          qput.appendChild(qb);
+          body.appendChild(qput);
+        }
+      }
+
       if (!card.pending && !card.failed && !card.qna) {
         if (!card.detail) {
           var more = document.createElement("div");
@@ -3832,9 +3868,14 @@
     var pw = sl ? sl.pw : state.pageW, ph = sl ? sl.ph : state.pageH;
     if (!pw || !ph) { card.pin = fallbackPin(card, size); return; }
 
+    /*
+     * 오려낸 자리가 없는 카드(물어본 것·대화)도 붙일 수 있어야 한다.
+     * 그럴 땐 왼쪽 위 귀퉁이를 기준점으로 삼아 빈 곳을 찾는다.
+     */
+    var r = card.rect && card.rect.w > 0 ? card.rect : { x: 0.02, y: 0.02, w: 0.001, h: 0.001 };
     var sel = {
-      x: card.rect.x * pw, y: ph - (card.rect.y + card.rect.h) * ph,
-      w: card.rect.w * pw, h: card.rect.h * ph
+      x: r.x * pw, y: ph - (r.y + r.h) * ph,
+      w: r.w * pw, h: r.h * ph
     };
 
     var hard = [];
