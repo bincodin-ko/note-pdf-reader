@@ -542,6 +542,35 @@
   .picktitle { font-size: 12.5px; color: var(--muted); margin-bottom: 8px; }
   .pickrow { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 9px; }
   .pickrow button { font-size: 12px; padding: 5px 10px; border-radius: 6px; }
+
+  /* 몇 문장으로 정리할지 — 숫자 칸과 버튼을 한 벌로 붙인다 */
+  .nsent { display: inline-flex; align-items: stretch; }
+  .nsent input {
+    font: inherit;
+    font-size: 12px;
+    width: 44px;
+    text-align: center;
+    color: var(--text);
+    background: var(--ink);
+    border: 1px solid var(--rule);
+    border-right: 0;
+    border-radius: 6px 0 0 6px;
+    padding: 4px 2px;
+  }
+  .nsent input:focus { outline: none; border-color: var(--marker); }
+  .nsent button {
+    border-radius: 0 6px 6px 0 !important;
+    font-size: 12px;
+    padding: 5px 9px;
+  }
+  .apn { display: flex; padding: 1px 0; }
+  .apn .nsent { width: 100%; }
+  .apn .nsent button { flex: 1; text-align: left; }
+  .aplist .apn.on .nsent button {
+    background: var(--ink-3);
+    border-color: rgba(255, 216, 61, 0.5);
+    color: var(--marker);
+  }
   .pickfree { display: flex; gap: 6px; }
   .pickfree input {
     flex: 1; min-width: 0; font: inherit; font-size: 12.5px;
@@ -1142,6 +1171,7 @@
     cards: [],            // {id,page,img,memo,summary,detail,rect,inserted}
     marks: [],            // 형광펜 자국 {id,page,color,rects:[정규화]}
     selMark: null,        // 고른 형광펜
+    nSent: 5,               // "n문장으로 정리"에서 쓸 문장 수
     tool: "clip",
     hlColor: 0,
     openPin: null,
@@ -2322,8 +2352,59 @@
     { id: "exam",  label: "시험 포인트",
       how: "시험에 나올 만한 것만 뽑으세요. 외워야 할 정의·수치·조건 위주로 5줄 이내." },
     { id: "terms", label: "용어 풀이",
-      how: "이 부분에 나오는 용어만 뽑아 '용어 — 뜻' 형식으로 한 줄씩 적으세요." }
+      how: "이 부분에 나오는 용어만 뽑아 '용어 — 뜻' 형식으로 한 줄씩 적으세요." },
+    /*
+     * 몇 문장으로 정리할지 직접 정하는 칸.
+     *
+     * "자세히"와 "짧게" 사이의 눈금이 사람마다 다르다. 어떤 대목은 두 문장이면
+     * 되고 어떤 대목은 열 문장이 필요하다. 이름표와 시킬 말이 숫자를 따라가야
+     * 하므로 글이 아니라 함수로 둔다.
+     */
+    { id: "n",
+      label: function () { return state.nSent + "문장으로 정리"; },
+      how: function () {
+        return "정확히 " + state.nSent + "문장으로 정리하세요. " +
+               "문장 수를 지키되, 한 문장에 여러 내용을 욱여넣지는 마세요.";
+      } }
   ];
+
+  function modeLabel(m) { return typeof m.label === "function" ? m.label() : m.label; }
+  function modeHow(m) { return typeof m.how === "function" ? m.how() : m.how; }
+
+  var N_MIN = 1, N_MAX = 20;
+  function setNSent(v) {
+    var n = Math.max(N_MIN, Math.min(N_MAX, parseInt(v, 10) || 5));
+    state.nSent = n;
+    try { localStorage.setItem("capnote:nsent", String(n)); } catch (e) {}
+    return n;
+  }
+  (function () {
+    var v = 5;
+    try { v = parseInt(localStorage.getItem("capnote:nsent"), 10) || 5; } catch (e) {}
+    state.nSent = Math.max(N_MIN, Math.min(N_MAX, v));
+  })();
+
+  /*
+   * 숫자 칸 + 버튼 한 벌. 오려낸 뒤 고르는 줄에도, 자동 넣기 목록에도 쓴다.
+   */
+  function nSentRow(onPick) {
+    var wrap = document.createElement("span");
+    wrap.className = "nsent";
+    var num = document.createElement("input");
+    num.type = "number";
+    num.min = String(N_MIN);
+    num.max = String(N_MAX);
+    num.value = String(state.nSent);
+    num.title = "몇 문장으로 정리할지";
+    num.addEventListener("keydown", function (e) { e.stopPropagation(); });
+    num.addEventListener("change", function () { num.value = String(setNSent(num.value)); });
+    var b = document.createElement("button");
+    b.textContent = "문장으로 정리";
+    b.onclick = function () { setNSent(num.value); onPick(); };
+    wrap.appendChild(num);
+    wrap.appendChild(b);
+    return wrap;
+  }
 
   /*
    * 자동 넣기 — 켜고 끄는 것만이 아니라 "무엇으로" 정리할지까지 고른다.
@@ -2337,7 +2418,7 @@
 
   function autoLabel() {
     if (!state.auto) return "끔";
-    if (state.auto.mode) return state.auto.mode.label;
+    if (state.auto.mode) return modeLabel(state.auto.mode);
     var t = state.auto.free || "";
     return t.length > 10 ? t.slice(0, 10) + "…" : t;
   }
@@ -2346,13 +2427,16 @@
     $("autoWhat").textContent = autoLabel();
     $("autoBtn").classList.toggle("on", !!state.auto);
     $("autoBtn").title = state.auto
-      ? "오려내면 묻지 않고 바로 " + (state.auto.mode ? state.auto.mode.label : "\u0027" + state.auto.free + "\u0027") + "(으)로 정리해 붙입니다"
+      ? "오려내면 묻지 않고 바로 " + (state.auto.mode ? modeLabel(state.auto.mode) : "\u0027" + state.auto.free + "\u0027") + "(으)로 정리해 붙입니다"
       : "오려내면 무엇을 시킬지 고르게 합니다";
     Array.prototype.forEach.call($("apList").children, function (b) {
       b.classList.toggle("on",
         (!state.auto && b.dataset.m === "off") ||
         !!(state.auto && state.auto.mode && state.auto.mode.id === b.dataset.m));
     });
+    // 숫자 칸은 지금 값을 따라간다
+    Array.prototype.forEach.call($("apList").querySelectorAll(".nsent input"),
+      function (i) { i.value = String(state.nSent); });
   }
 
   function closeAuto() { $("autoPop").classList.add("gone"); }
@@ -2368,7 +2452,19 @@
     }
     item("off", "묻고 고르기", function () { state.auto = null; });
     ASK_MODES.forEach(function (m) {
-      item(m.id, m.label, function () { state.auto = { mode: m }; });
+      if (m.id === "n") {
+        var row = document.createElement("div");
+        row.className = "apn";
+        row.dataset.m = m.id;
+        row.appendChild(nSentRow(function () {
+          state.auto = { mode: m };
+          renderAuto();
+          closeAuto();
+        }));
+        list.appendChild(row);
+        return;
+      }
+      item(m.id, modeLabel(m), function () { state.auto = { mode: m }; });
     });
 
     $("autoBtn").onclick = function (e) {
@@ -2434,12 +2530,12 @@
     card.awaiting = false;
     card.pending = true;
     card.failed = false;
-    card.mode = mode ? mode.label : "직접 물음";
+    card.mode = mode ? modeLabel(mode) : "직접 물음";
     card.askText = free || "";
     renderCards();
 
     var ctx = recentContext();
-    var how = mode ? mode.how : ("다음 질문에 답하세요: " + free);
+    var how = mode ? modeHow(mode) : ("다음 질문에 답하세요: " + free);
 
     var prompt =
       "대학 강의자료 " + card.page + "쪽에서 오려낸 부분입니다.\n" +
@@ -3068,8 +3164,12 @@
         var prow = document.createElement("div");
         prow.className = "pickrow";
         ASK_MODES.forEach(function (m) {
+          if (m.id === "n") {                      // 숫자를 정해서 고르는 칸
+            prow.appendChild(nSentRow(function () { runCard(card, m); }));
+            return;
+          }
           var b = document.createElement("button");
-          b.textContent = m.label;
+          b.textContent = modeLabel(m);
           if (m.id === "core") b.className = "primary";
           b.onclick = function () { runCard(card, m); };
           prow.appendChild(b);
