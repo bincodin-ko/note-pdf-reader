@@ -304,7 +304,8 @@
   .memoacts button { font-size: 12px; line-height: 1.35; padding: 4px 9px; border-radius: 5px; }
 
   .notes {
-    /* 폭을 못 늘리게 못 박는다. 긴 글이 들어와도 PDF 영역을 밀지 않게 */
+    /* 폭은 --notes-w 하나로 정한다. 모서리를 끌면 그 값이 바뀐다 */
+    position: relative;
     flex: 0 0 var(--notes-w);
     width: var(--notes-w);
     min-width: 0;
@@ -314,6 +315,54 @@
     flex-direction: column;
     min-height: 0;
   }
+
+  /* 폭 잡이 — 평소엔 안 보이다가 가져가면 드러난다 */
+  .ngrip {
+    position: absolute;
+    left: -4px;
+    top: 0;
+    bottom: 0;
+    width: 9px;
+    z-index: 7;
+    cursor: col-resize;
+    touch-action: none;
+  }
+  .ngrip::after {
+    content: "";
+    position: absolute;
+    left: 3px;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background: transparent;
+    transition: background 0.15s;
+  }
+  .ngrip:hover::after, .ngrip.on::after { background: var(--marker); }
+
+  /*
+   * PDF만 보기.
+   *
+   * 수업 중에 자료만 크게 볼 때가 있다. 위 줄도 정리 패널도 접고 종이만 남긴다.
+   * 창 전체화면까지 같이 요청하지만, 막히는 환경도 있어 화면 접기는 따로 한다.
+   */
+  #root.focus .bar,
+  #root.focus .notes,
+  #root.focus .status { display: none; }
+  #root.focus .main { height: 100vh; }
+  .exitfocus {
+    position: fixed;
+    right: 14px;
+    top: 12px;
+    z-index: 30;
+    font-size: 12px;
+    padding: 6px 11px;
+    border-radius: 999px;
+    background: rgba(16, 26, 35, 0.86);
+    opacity: 0.35;
+    transition: opacity 0.15s;
+  }
+  .exitfocus:hover { opacity: 1; }
+  .exitfocus.gone { display: none; }
 
   .noteshead {
     padding: 12px 14px;
@@ -956,6 +1005,7 @@
     <button id="mfsUp" disabled>메모 가＋</button>
   </span>
   <button id="spread" disabled title="한 쪽씩 / 두 쪽씩 보기">한 쪽</button>
+  <button id="focus" disabled title="PDF만 크게 봅니다 (Esc로 빠져나옴)">PDF만</button>
   <button id="zoomout" disabled>축소</button>
   <button id="zoomin" disabled>확대</button>
   <div class="spacer"></div>
@@ -995,6 +1045,8 @@
   </div>
 
   <div class="notes">
+    <!-- 왼쪽 모서리를 끌어 폭을 바꾼다 -->
+    <div class="ngrip" id="ngrip" title="끌어서 폭을 바꿉니다"></div>
     <div class="noteshead">
       <strong>정리</strong>
       <span class="count" id="count"></span>
@@ -1039,6 +1091,7 @@
   </div>
 </div>
 
+<button class="exitfocus gone" id="exitFocus">PDF만 보기 끄기 (Esc)</button>
 <div class="status" id="status"></div>
 </div>
 
@@ -1190,6 +1243,7 @@
     viewport: null,
     slots: [],              // 화면에 보이는 쪽들의 자리. 두 쪽 보기면 둘이다
     spread: false,          // 두 쪽씩 보기
+    focus: false,           // PDF만 보기
     pageW: 0,               // 쪽 크기(PDF 포인트). 메모를 같은 치수로 그리려면 필요하다
     pageH: 0,
     canvas: null,
@@ -1861,7 +1915,7 @@
     $("pageIn").value = state.page;
     $("pageTotal").textContent = state.pages;
     showPageBadge();
-    ["prev", "next", "zoomin", "zoomout", "expMd", "expPdf", "q", "qsend", "qscope", "expScope", "expBurn", "spread", "toolClip", "toolHl", "mfsUp", "mfsDown"].forEach(function (id) {
+    ["prev", "next", "zoomin", "zoomout", "expMd", "expPdf", "q", "qsend", "qscope", "expScope", "expBurn", "spread", "focus", "toolClip", "toolHl", "mfsUp", "mfsDown"].forEach(function (id) {
       $(id).disabled = false;
     });
     $("prev").disabled = state.page <= 1;
@@ -2050,16 +2104,91 @@
    * 일부러 키워 놓은 걸 창 옮겼다고 되돌리면 성가시다.
    */
   var fitTimer = null;
-  window.addEventListener("resize", function () {
+  async function refit() {
     if (!state.pdf || state.userZoomed) return;
+    var s = fitScale(await state.pdf.getPage(state.page));
+    if (Math.abs(s - state.scale) < 0.01) return;
+    state.scale = s;
+    closeMemoEdit();
+    renderPage();
+  }
+  function refitSoon(ms) {
     clearTimeout(fitTimer);
-    fitTimer = setTimeout(async function () {
-      var s = fitScale(await state.pdf.getPage(state.page));
-      if (Math.abs(s - state.scale) < 0.01) return;
-      state.scale = s;
-      closeMemoEdit();
-      renderPage();
-    }, 150);
+    fitTimer = setTimeout(refit, ms || 150);
+  }
+  window.addEventListener("resize", function () { refitSoon(150); });
+
+  /*
+   * 정리 패널 폭 — 모서리를 끌어 바꾼다.
+   *
+   * 자료를 크게 볼 때가 있고 정리를 길게 볼 때가 있다. 폭은 CSS 변수 하나로
+   * 정해 두었으므로 그 값만 바꾸면 쪽 번호 표시까지 따라온다. 고른 폭은 기억한다.
+   */
+  var NOTES_MIN = 260;
+  function setNotesWidth(px, quiet) {
+    var max = Math.max(NOTES_MIN, Math.round(window.innerWidth * 0.6));
+    var w = Math.max(NOTES_MIN, Math.min(max, Math.round(px)));
+    document.documentElement.style.setProperty("--notes-w", w + "px");
+    try { localStorage.setItem("capnote:noteswidth", String(w)); } catch (e) {}
+    if (!quiet) refitSoon(120);
+    return w;
+  }
+  (function () {
+    var v = 0;
+    try { v = parseInt(localStorage.getItem("capnote:noteswidth"), 10) || 0; } catch (e) {}
+    if (v) setNotesWidth(v, true);
+  })();
+
+  (function () {
+    var g = $("ngrip"), dragging = false;
+    g.addEventListener("pointerdown", function (e) {
+      dragging = true;
+      g.classList.add("on");
+      g.setPointerCapture(e.pointerId);
+      e.preventDefault();
+    });
+    g.addEventListener("pointermove", function (e) {
+      if (!dragging) return;
+      // 오른쪽 끝에서 마우스까지의 거리가 곧 패널 폭이다
+      setNotesWidth(window.innerWidth - e.clientX, true);
+    });
+    function end() {
+      if (!dragging) return;
+      dragging = false;
+      g.classList.remove("on");
+      refitSoon(60);
+    }
+    g.addEventListener("pointerup", end);
+    g.addEventListener("pointercancel", end);
+    // 두 번 누르면 기본 폭으로
+    g.addEventListener("dblclick", function () { setNotesWidth(350); });
+  })();
+
+  /*
+   * PDF만 보기. 위 줄과 정리 패널을 접고 창 전체화면도 함께 요청한다.
+   * 전체화면이 막히는 환경도 있으므로 화면 접기와 전체화면은 따로 다룬다.
+   */
+  function setFocus(on) {
+    state.focus = !!on;
+    $("root").classList.toggle("focus", state.focus);
+    $("exitFocus").classList.toggle("gone", !state.focus);
+    $("focus").classList.toggle("on", state.focus);
+    try {
+      if (state.focus && !document.fullscreenElement) {
+        var p = document.documentElement.requestFullscreen();
+        if (p && p.catch) p.catch(function () {});
+      } else if (!state.focus && document.fullscreenElement) {
+        var q = document.exitFullscreen();
+        if (q && q.catch) q.catch(function () {});
+      }
+    } catch (e) { /* 전체화면이 막혀도 접기는 된다 */ }
+    refitSoon(80);
+  }
+  $("focus").onclick = function () { setFocus(!state.focus); };
+  $("exitFocus").onclick = function () { setFocus(false); };
+  document.addEventListener("fullscreenchange", function () {
+    // 창 전체화면을 밖에서 풀었으면 화면도 같이 돌려놓는다
+    if (!document.fullscreenElement && state.focus) setFocus(false);
   });
 
   /* ---------- 영역 선택 ---------- */
@@ -5199,11 +5328,15 @@
     var typing = !!t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
 
     if (e.key === "Escape") {
+      var busy = typing || state.selMark ||
+                 !$("autoPop").classList.contains("gone") ||
+                 state.cards.some(function (c) { return c.editingMemo; });
       state.selMark = null;
       drawMarks();
       closeMemoEdit();
       closeAuto();
       if (typing && t.blur) t.blur();
+      if (!busy && state.focus) setFocus(false);   // 닫을 게 없으면 PDF만 보기를 끈다
       return;
     }
     if (typing) return;
