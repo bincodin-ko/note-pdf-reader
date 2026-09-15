@@ -515,6 +515,15 @@
     padding: 8px 10px;
   }
   .askbar input:focus { outline: none; border-color: var(--marker); }
+  /* 쪽 범위 칸 — "여러 쪽"일 때만 나온다 */
+  .askbar input.qrange {
+    flex: 0 0 74px;
+    width: 74px;
+    text-align: center;
+    font-size: 12px;
+    padding: 8px 4px;
+  }
+  .askbar input.qrange.gone { display: none; }
   .askbar button { font-size: 13px; padding: 8px 12px; }
 
   /* 질문 카드는 오려낸 카드와 구분되게 왼쪽에 띠를 둔다 */
@@ -738,14 +747,27 @@
    * 따로 둔다 — 이건 눈으로 보기 좋게 글자에 맞추려고 만지는 것이라,
    * 여기를 옮긴다고 이미 물어본 그림이 달라지면 안 된다.
    */
+  /*
+   * 테두리 안쪽은 눌러도 통과한다.
+   *
+   * 전에는 테두리가 그 자리를 통째로 덮어서, 메모를 붙여 둔 곳에는 다시 드래그도
+   * 더블클릭도 안 됐다. 테두리를 지워야만 그 자리를 쓸 수 있었다.
+   * 이제 잡히는 건 테두리 선(.be)과 모서리(.bh)뿐이고, 안쪽은 종이로 돌려준다.
+   */
   .boxsel {
     position: absolute;
     border: 2px solid var(--marker);
     border-radius: 2px;
     background: transparent;
-    cursor: move;
+    pointer-events: none;
     z-index: 3;
   }
+  .boxsel .bh, .boxsel .be { pointer-events: auto; }
+  .boxsel .be { position: absolute; cursor: move; }
+  .boxsel .be.t { left: 0; right: 0; top: -5px; height: 10px; }
+  .boxsel .be.b { left: 0; right: 0; bottom: -5px; height: 10px; }
+  .boxsel .be.l { top: 0; bottom: 0; left: -5px; width: 10px; }
+  .boxsel .be.r { top: 0; bottom: 0; right: -5px; width: 10px; }
   .boxsel .bh {
     position: absolute;
     width: 11px;
@@ -779,14 +801,17 @@
     white-space: nowrap;
   }
 
+  /*
+   * 형광펜 자국도 자리를 막지 않는다. 그어 둔 곳에 다시 드래그해서 물어볼 수
+   * 있어야 한다. 고르는 건 층에서 눌린 자리로 찾는다(bindSelection 참고).
+   */
   .hlmark {
     position: absolute;
     z-index: 2;              /* 테두리·메모보다 아래 */
     mix-blend-mode: multiply;
     border-radius: 2px;
-    cursor: pointer;
+    pointer-events: none;
   }
-  .hlmark:hover { outline: 1px solid rgba(0, 0, 0, 0.35); }
   /* 고른 자국은 테두리로 알린다. 지우기는 X 버튼이나 Delete 키로 한다 */
   .hlmark.on { outline: 2px solid #333; }
   .hldel {
@@ -935,6 +960,7 @@
     </div>
     <div class="askbar">
       <button class="scope" id="qscope" title="질문 범위를 바꿉니다" disabled>이 쪽</button>
+      <input id="qRange" class="qrange gone" type="text" maxlength="11" title="볼 쪽 범위 (예: 120-135)" />
       <input id="q" type="text" placeholder="이 쪽에 대해 물어보기" maxlength="300" disabled />
       <button id="qsend" disabled>묻기</button>
     </div>
@@ -1445,12 +1471,6 @@
         el.style.height = (r.h * H) + "px";
         el.style.background = penOf(mk.color).css;
         el.title = "누르면 골라집니다. 지우려면 X 또는 Delete";
-        el.addEventListener("pointerdown", function (e) { e.stopPropagation(); });
-        el.onclick = function (e) {
-          e.stopPropagation();
-          state.selMark = picked ? null : mk.id;   // 다시 누르면 고르기 해제
-          drawMarks();
-        };
         state.layer.appendChild(el);
 
         if (top === null || r.y < top) top = r.y;
@@ -1989,11 +2009,14 @@
   /* ---------- 영역 선택 ---------- */
 
   function bindSelection(layer) {
-    var box = null, start = null;
+    var box = null, start = null, wasSel = null;
 
     layer.addEventListener("pointerdown", function (e) {
       if (e.target !== layer) return;
-      if (state.selMark) { state.selMark = null; drawMarks(); }      // 핀이나 메모를 누른 경우는 제외
+      // 누르는 순간 고르기를 푼다. 같은 자국을 다시 눌러 끄려면 뭐가 골라져
+      // 있었는지 기억해 둬야 한다
+      wasSel = state.selMark;
+      if (state.selMark) { state.selMark = null; drawMarks(); }
       closeMemoEdit();
       layer.setPointerCapture(e.pointerId);
       var r = layer.getBoundingClientRect();
@@ -2013,6 +2036,25 @@
       box.style.height = Math.abs(y - start.y) + "px";
     });
 
+    /*
+     * 눌린 자리에 형광펜 자국이 있는지 본다.
+     *
+     * 자국이 이벤트를 받으면 그어 둔 곳에 다시 드래그를 못 한다. 그래서 자국은
+     * 통과시키고, 끌지 않고 톡 눌렀을 때만 여기서 찾아 고른다.
+     */
+    function markAt(x, y) {
+      var hit = null;
+      state.marks.forEach(function (mk) {
+        var slot = slotOf(mk.page);
+        if (!slot) return;
+        mk.rects.forEach(function (q) {
+          var bx = slot.x + q.x * slot.w, by = slot.y + q.y * slot.h;
+          if (x >= bx && x <= bx + q.w * slot.w && y >= by && y <= by + q.h * slot.h) hit = mk;
+        });
+      });
+      return hit;
+    }
+
     function finish(e) {
       if (!start || !box) return;
       var r = layer.getBoundingClientRect();
@@ -2022,6 +2064,17 @@
         w: Math.abs(x - start.x), h: Math.abs(y - start.y)
       };
       box.remove(); box = null; start = null;
+
+      // 끌지 않고 톡 눌렀다 — 그 자리의 형광펜을 고른다
+      if (rect.w < 6 && rect.h < 6) {
+        var mk = markAt(x, y);
+        if (mk) {
+          state.selMark = wasSel === mk.id ? null : mk.id;
+          drawMarks();
+        }
+        return;
+      }
+
       if (state.tool === "hl") {
         // 형광펜은 한 줄만 그어도 되므로 문턱을 낮춘다
         if (rect.w > 6 && rect.h > 4) addMark(rect);
@@ -2517,6 +2570,7 @@
       page: state.page,
       qna: true,
       scope: Q_SCOPES[qScope].id,
+      range: Q_SCOPES[qScope].id === "range" ? $("qRange").value.trim() : null,
       question: text,
       summary: "",
       pending: true
@@ -2551,6 +2605,69 @@
           "한국어로, 수업 중에 읽을 것이므로 짧고 구체적으로 답하세요. 8줄 이내.\n" +
           "마크다운 표시(**, ##)는 쓰지 마세요. 목록은 \"- \"로만 적으세요."
       });
+      try {
+        card.summary = await callClaude([{ role: "user", content: content }]);
+        setStatus("");
+      } catch (err) {
+        card.summary = "답을 받아오지 못했습니다.";
+        card.failed = true;
+        setStatus(String(err.message || err), true);
+      }
+      card.pending = false;
+      renderCards();
+      saveCard(card);
+      return;
+    }
+
+    /*
+     * 여러 쪽 — 정한 범위를 그림으로 보내 보고 답하게 한다.
+     *
+     * 전체 쪽은 글자만 보내므로 스캔본에서는 아무것도 못 읽는다. 한 단원 정도는
+     * 눈으로 보여 주는 편이 확실하다. 다만 그림은 무겁다 — 여덟 쪽까지만 보낸다.
+     */
+    if (card.scope === "range") {
+      var rg = parseRange(card.range);
+      if (!rg || !rg.pages.length) {
+        card.summary = "쪽 범위를 \"120-135\"처럼 적어 주세요.";
+        card.failed = true; card.pending = false;
+        renderCards(); saveCard(card);
+        return;
+      }
+      card.pageFrom = rg.pages[0];
+      card.pageTo = rg.pages[rg.pages.length - 1];
+      card.page = rg.pages[0];
+      if (rg.asked > rg.pages.length) {
+        card.note = "한 번에 " + RANGE_MAX + "쪽까지만 볼 수 있어 " +
+                    card.pageFrom + "–" + card.pageTo + "쪽만 봤습니다. 범위를 좁혀 다시 물어보세요.";
+      }
+      setStatus(card.pageFrom + "–" + card.pageTo + "쪽을 읽는 중…");
+
+      for (var ri = 0; ri < rg.pages.length; ri++) {
+        try {
+          var shotP = await cropFromPdf(rg.pages[ri], { x: 0, y: 0, w: 1, h: 1 }, 1100);
+          content.push({
+            type: "text",
+            text: rg.pages[ri] + "쪽:"
+          });
+          content.push({
+            type: "image",
+            source: { type: "base64", media_type: "image/jpeg",
+                      data: shotP.toDataURL("image/jpeg", 0.75).split(",")[1] }
+          });
+        } catch (e) { /* 한 쪽을 못 그려도 나머지로 답한다 */ }
+      }
+
+      content.push({
+        type: "text",
+        text:
+          "위는 강의자료 " + card.pageFrom + "–" + card.pageTo + "쪽을 찍은 그림입니다.\n" +
+          "\n학생 질문: " + text + "\n\n" +
+          "한국어로 구체적으로 답하세요. 12줄 이내. " +
+          "어느 쪽에서 나온 내용인지 \"N쪽\" 형식으로 밝히세요. " +
+          "그림에 없는 내용이면 없다고 먼저 말하세요.\n" +
+          "마크다운 표시(**, ##)는 쓰지 마세요. 목록은 \"- \"로만 적으세요."
+      });
+
       try {
         card.summary = await callClaude([{ role: "user", content: content }]);
         setStatus("");
@@ -2786,21 +2903,48 @@
    * 버튼 하나를 눌러 돌려 쓴다 — 칸을 늘리면 그만큼 자료 볼 자리가 준다.
    */
   var Q_SCOPES = [
-    { id: "page", label: "이 쪽",  hint: "이 쪽에 대해 물어보기" },
-    { id: "all",  label: "전체",   hint: "전체 쪽에서 찾아보기" },
-    { id: "chat", label: "대화",   hint: "자료와 상관없이 물어보기" }
+    { id: "page",  label: "이 쪽",   hint: "이 쪽에 대해 물어보기" },
+    { id: "all",   label: "전체",    hint: "전체 쪽에서 찾아보기" },
+    { id: "range", label: "여러 쪽", hint: "이 범위를 보고 답합니다" },
+    { id: "chat",  label: "대화",    hint: "자료와 상관없이 물어보기" }
   ];
+  var RANGE_MAX = 8;                      // 그림으로 보내는 쪽 수 상한
   var qScope = 0;
 
   function applyQScope() {
     var s = Q_SCOPES[qScope];
     $("qscope").textContent = s.label;
-    $("qscope").classList.toggle("all", s.id === "all");
+    $("qscope").classList.toggle("all", s.id === "all" || s.id === "range");
     $("qscope").classList.toggle("chat", s.id === "chat");
-    $("qscope").title = s.id === "chat"
-      ? "자료를 보내지 않고 그냥 묻습니다. 앞서 나눈 대화는 이어집니다"
-      : s.id === "all" ? "자료 전체의 원문에서 찾습니다" : "지금 보고 있는 쪽 화면을 보고 답합니다";
+    $("qscope").title =
+      s.id === "chat" ? "자료를 보내지 않고 그냥 묻습니다. 앞서 나눈 대화는 이어집니다"
+      : s.id === "all" ? "자료 전체의 원문에서 찾습니다"
+      : s.id === "range" ? "정한 범위의 쪽을 그림으로 보고 답합니다. 글자가 없는 스캔본에서도 됩니다"
+      : "지금 보고 있는 쪽 화면을 보고 답합니다";
     $("q").placeholder = s.hint;
+
+    var r = $("qRange");
+    r.classList.toggle("gone", s.id !== "range");
+    if (s.id === "range" && !r.value.trim() && state.pdf) {
+      var to = Math.min(state.pages, state.page + RANGE_MAX - 1);
+      r.value = state.page + "-" + to;
+    }
+  }
+
+  /*
+   * "120-135" 같은 글을 쪽 목록으로. 한 쪽만 적어도 된다.
+   * 그림으로 보내는 것이라 무한정 늘릴 수 없어 상한을 둔다.
+   */
+  function parseRange(text) {
+    var m = String(text || "").replace(/\s|쪽/g, "").match(/^(\d+)(?:[-~–](\d+))?$/);
+    if (!m) return null;
+    var a = parseInt(m[1], 10), b = m[2] ? parseInt(m[2], 10) : a;
+    if (b < a) { var t = a; a = b; b = t; }
+    a = Math.max(1, a); b = Math.min(state.pages, b);
+    if (!(a >= 1 && b >= a)) return null;
+    var out = [];
+    for (var i = a; i <= b && out.length < RANGE_MAX; i++) out.push(i);
+    return { pages: out, asked: b - a + 1 };
   }
 
   $("qscope").onclick = function () {
@@ -2816,6 +2960,11 @@
     el.value = "";
     askQuestion(text);
   }
+
+  $("qRange").addEventListener("keydown", function (e) {
+    e.stopPropagation();
+    if (e.key === "Enter") { e.preventDefault(); $("q").focus(); }
+  });
 
   $("qsend").onclick = sendQuestion;
   $("q").addEventListener("keydown", function (e) {
@@ -2863,7 +3012,9 @@
       // 대화는 쪽도 "질문"도 붙이지 않는다 — 자료와 상관없는 말이라 그 편이 맞다
       pg.textContent = card.qna && card.scope === "chat"
         ? "대화"
-        : (card.qna && card.scope === "all" ? "전체" : card.page + "쪽") +
+        : (card.qna && card.scope === "all" ? "전체"
+           : card.qna && card.scope === "range" ? card.pageFrom + "–" + card.pageTo + "쪽"
+           : card.page + "쪽") +
           (card.qna ? " · 질문" : "");
       if (card.mode && !card.qna) {
         var tag = document.createElement("span");
@@ -3379,6 +3530,12 @@
       place();
       el.title = "끌어서 옮기고, 모서리로 크기를 맞춥니다";
 
+      // 잡을 수 있는 건 테두리 선과 모서리뿐. 안쪽은 종이로 남긴다
+      ["t", "r", "b", "l"].forEach(function (k) {
+        var ed = document.createElement("div");
+        ed.className = "be " + k;
+        el.appendChild(ed);
+      });
       ["nw", "ne", "sw", "se"].forEach(function (k) {
         var hd = document.createElement("div");
         hd.className = "bh " + k;
@@ -4122,7 +4279,9 @@
         ? (c.page + "쪽 · 형광펜")
         : c.qna
           ? (c.scope === "chat" ? "대화"
-             : (c.scope === "all" ? "전체" : c.page + "쪽") + " · 질문")
+             : (c.scope === "all" ? "전체"
+                : c.scope === "range" ? c.pageFrom + "–" + c.pageTo + "쪽"
+                : c.page + "쪽") + " · 질문")
           : (c.page + "쪽" + (c.mode ? " · " + c.mode : ""));
       text(head, 9.5, false, "#9a9a9a", 15);
 
@@ -4255,7 +4414,9 @@
         ? (c.page + "쪽 · 형광펜(" + penOf(c.color).name + ")")
         : c.qna
           ? (c.scope === "chat" ? "대화"
-             : (c.scope === "all" ? "전체" : c.page + "쪽") + " · 질문")
+             : (c.scope === "all" ? "전체"
+                : c.scope === "range" ? c.pageFrom + "–" + c.pageTo + "쪽"
+                : c.page + "쪽") + " · 질문")
           : (c.page + "쪽" + (c.mode ? " · " + c.mode : ""));
       var pb = document.createElement("div");
       pb.className = "pib";
@@ -4701,13 +4862,30 @@
   document.addEventListener("keydown", function (e) {
     if (e.ctrlKey || e.metaKey) return;
     if (!state.pdf) return;
+
+    /*
+     * 글을 치는 중이면 자판은 글칸의 것이다.
+     *
+     * 메모를 고치다 화살표로 커서를 옮기려는데 쪽이 넘어갔다. Delete만 막아
+     * 두었던 걸 모든 단축키로 넓힌다. Esc는 예외 — 글칸에서도 빠져나가는
+     * 열쇠라 그것만 먼저 받는다.
+     */
+    var t = e.target;
+    var typing = !!t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
+
+    if (e.key === "Escape") {
+      state.selMark = null;
+      drawMarks();
+      closeMemoEdit();
+      closeAuto();
+      if (typing && t.blur) t.blur();
+      return;
+    }
+    if (typing) return;
+
     if (e.key === "ArrowLeft") $("prev").click();
     if (e.key === "ArrowRight") $("next").click();
-    if (e.key === "Escape") { state.selMark = null; drawMarks(); closeMemoEdit(); closeAuto(); }
     if (e.key === "Delete" || e.key === "Backspace") {
-      // 글을 치는 중에는 건드리지 않는다
-      var t = e.target && e.target.tagName;
-      if (t === "INPUT" || t === "TEXTAREA") return;
       if (!state.selMark) return;
       e.preventDefault();
       var mk = state.marks.filter(function (m) { return m.id === state.selMark; })[0];
