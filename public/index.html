@@ -3021,7 +3021,14 @@
    * 밝히도록 시켜 두었으니(그 표시로 이동 단추도 만든다), 같은 표시를 따라
    * 잘라 쪽마다 제 몫만 붙인다. 쪽을 하나도 안 밝힌 답은 나누지 않는다.
    */
-  var PUT_MAX = 8;          // 한 번에 붙이는 쪽 수 — 답 하나가 자료를 덮지 않게
+  /*
+   * 한 번에 붙이는 쪽 수 상한.
+   *
+   * 여덟이면 답이 밝힌 쪽을 다 못 받는다 — 답은 열 줄 넘게도 쓰고, 한 단원을
+   * 물으면 쪽이 그만큼 나온다. 답이 짚은 쪽은 다 붙는 게 맞다. 그래도 상한은
+   * 둔다. 답이 쪽 번호를 마구 뿌리면 668쪽짜리가 메모로 덮일 수 있다.
+   */
+  var PUT_MAX = 30;
 
   function answerParts(card) {
     var here = card.scope === "chat" || !card.page ? state.page : card.page;
@@ -3043,6 +3050,16 @@
     return order.slice(0, PUT_MAX).map(function (p) {
       return { page: p, text: by[p].join("\n") };
     });
+  }
+
+  /*
+   * 어디에 붙는지 부르는 이름. 쪽이 많으면 다 늘어놓지 않는다 —
+   * "1·2·3·…·25쪽에 나눠 붙이기"는 단추가 아니라 문단이다.
+   */
+  function putWhere(pages) {
+    return pages.length <= 4
+      ? pages.join("·") + "쪽"
+      : pages.length + "곳(" + pages[0] + "–" + pages[pages.length - 1] + "쪽)";
   }
 
   function memoText(t) {
@@ -3085,7 +3102,7 @@
     // 한 쪽뿐이면 바로 줄일 수 있게 열어 준다. 여러 쪽이면 어느 걸 여는지가 애매하다
     if (!quiet && parts.length === 1) card.editingMemo = true;
     renderCards(); drawMemos();
-    setStatus(card.putPages.join("·") + "쪽에 붙였습니다.");
+    setStatus(putWhere(card.putPages) + "에 붙였습니다.");
   }
 
   /*
@@ -3736,7 +3753,7 @@
         if (pages.length) {
           var jr = document.createElement("div");
           jr.className = "jump";
-          pages.slice(0, 8).forEach(function (n) {
+          pages.slice(0, PUT_MAX).forEach(function (n) {
             var jb = document.createElement("button");
             jb.textContent = n + "쪽으로";
             jb.onclick = function () {
@@ -3759,8 +3776,8 @@
         if (card.inserted) {
           var qdone = document.createElement("div");
           qdone.className = "done";
-          qdone.textContent = "PDF " + (card.putPages || [card.page]).join("·") +
-                              "쪽에 메모로 붙였습니다";
+          qdone.textContent = "PDF " + putWhere(card.putPages || [card.page]) +
+                              "에 메모로 붙였습니다";
           body.appendChild(qdone);
         } else {
           var qput = document.createElement("div");
@@ -3768,9 +3785,7 @@
           var qb = document.createElement("button");
           // 어디에 붙는지 단추에 적는다 — 전체·여러 쪽이면 보고 있는 쪽이 아니다
           var tgt = answerParts(card).map(function (p) { return p.page; });
-          qb.textContent = tgt.length > 1
-            ? tgt.join("·") + "쪽에 나눠 붙이기"
-            : tgt[0] + "쪽에 메모로 붙이기";
+          qb.textContent = putWhere(tgt) + (tgt.length > 1 ? "에 나눠 붙이기" : "에 메모로 붙이기");
           qb.title = tgt.length > 1
             ? "답에 나온 쪽마다 그 쪽 이야기만 붙입니다"
             : "이 답을 그 쪽에 메모로 붙입니다";
