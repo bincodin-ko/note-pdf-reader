@@ -3013,6 +3013,95 @@
       .join("\n");
   }
 
+  /*
+   * 답을 쪽마다 나눠 붙인다.
+   *
+   * 전체·여러 쪽으로 물으면 답 하나가 여러 쪽 이야기를 한다. 그걸 통째로 한
+   * 쪽에 붙이면 정작 그 내용이 있는 쪽에는 아무것도 안 남는다. 답에 "N쪽"을
+   * 밝히도록 시켜 두었으니(그 표시로 이동 단추도 만든다), 같은 표시를 따라
+   * 잘라 쪽마다 제 몫만 붙인다. 쪽을 하나도 안 밝힌 답은 나누지 않는다.
+   */
+  var PUT_MAX = 8;          // 한 번에 붙이는 쪽 수 — 답 하나가 자료를 덮지 않게
+
+  function answerParts(card) {
+    var here = card.scope === "chat" || !card.page ? state.page : card.page;
+    var one = [{ page: here, text: card.summary || "" }];
+    if (card.scope !== "all" && card.scope !== "range") return one;
+
+    var by = {}, order = [], cur = 0, intro = [];
+    String(card.summary || "").split("\n").forEach(function (ln) {
+      var m = ln.match(/(\d{1,4})\s*쪽/);
+      var n = m ? parseInt(m[1], 10) : 0;
+      if (n >= 1 && n <= state.pages) cur = n;
+      if (!cur) { intro.push(ln); return; }
+      if (!by[cur]) { by[cur] = []; order.push(cur); }
+      by[cur].push(ln);
+    });
+    if (!order.length) return one;
+    order.sort(function (a, b) { return a - b; });
+    if (intro.length) by[order[0]] = intro.concat(by[order[0]]);   // 머리말은 첫 쪽에
+    return order.slice(0, PUT_MAX).map(function (p) {
+      return { page: p, text: by[p].join("\n") };
+    });
+  }
+
+  function memoText(t) {
+    return mdPlain(t).replace(/\n{2,}/g, "\n").trim().slice(0, 300);
+  }
+
+  /*
+   * 첫 쪽은 카드 자신이 맡고, 나머지 쪽은 목록에 올리지 않는 메모로 따로
+   * 만든다(loose). 쪽마다 카드가 하나씩 생기면 질문 하나가 목록을 다 채운다.
+   */
+  async function attachAnswer(card, quiet) {
+    var parts = answerParts(card);
+    card.page = parts[0].page;
+    card.memo = memoText(parts[0].text);
+    card.inserted = true;
+    card.declined = false;
+    card.pin = null;
+    await placeMemoFor(card);
+
+    for (var i = 1; i < parts.length; i++) {
+      var kid = {
+        id: "a" + Date.now() + "_" + i,
+        page: parts[i].page,
+        loose: true,
+        inserted: true,
+        qna: true,
+        scope: card.scope,
+        question: card.question,
+        memo: memoText(parts[i].text),
+        summary: parts[i].text
+      };
+      state.cards.push(kid);
+      await placeMemoFor(kid);
+      saveCard(kid);
+    }
+
+    card.putPages = parts.map(function (p) { return p.page; });
+    saveCard(card);
+    closeMemoEdit();
+    // 한 쪽뿐이면 바로 줄일 수 있게 열어 준다. 여러 쪽이면 어느 걸 여는지가 애매하다
+    if (!quiet && parts.length === 1) card.editingMemo = true;
+    renderCards(); drawMemos();
+    setStatus(card.putPages.join("·") + "쪽에 붙였습니다.");
+  }
+
+  /*
+   * 물어본 답을 마무리한다.
+   *
+   * "묻지 말고 자동으로 넣기"는 오려낸 것에만 걸려 있었다. 그래서 전체·여러
+   * 쪽으로 물으면 답은 오는데 쪽에는 아무것도 안 남았다. 한쪽만 자동이면
+   * 규칙이 아니라 예외다 — 답도 켜져 있으면 바로 붙인다.
+   */
+  async function finishAsk(card) {
+    card.pending = false;
+    renderCards();
+    saveCard(card);
+    if (!card.failed && state.auto && card.summary) await attachAnswer(card, true);
+  }
+
   async function askQuestion(text) {
     var card = {
       id: "q" + Date.now(),
@@ -3062,9 +3151,7 @@
         card.failed = true;
         setStatus(String(err.message || err), true);
       }
-      card.pending = false;
-      renderCards();
-      saveCard(card);
+      await finishAsk(card);
       return;
     }
 
@@ -3125,9 +3212,7 @@
         card.failed = true;
         setStatus(String(err.message || err), true);
       }
-      card.pending = false;
-      renderCards();
-      saveCard(card);
+      await finishAsk(card);
       return;
     }
 
@@ -3191,9 +3276,7 @@
         card.failed = true;
         setStatus(String(err.message || err), true);
       }
-      card.pending = false;
-      renderCards();
-      saveCard(card);
+      await finishAsk(card);
       return;
     }
 
@@ -3231,9 +3314,7 @@
       card.failed = true;
       setStatus(String(err.message || err), true);
     }
-    card.pending = false;
-    renderCards();
-    saveCard(card);
+    await finishAsk(card);
   }
 
   /*
@@ -3426,7 +3507,7 @@
   function renderCards() {
     var box = $("cards");
     box.innerHTML = "";
-    var list = state.cards.filter(function (c) { return !c.manual; });
+    var list = state.cards.filter(function (c) { return !c.manual && !c.loose; });
     $("count").textContent = list.length ? list.length + "장" : "";
 
     if (!list.length) {
@@ -3678,26 +3759,22 @@
         if (card.inserted) {
           var qdone = document.createElement("div");
           qdone.className = "done";
-          qdone.textContent = "PDF " + card.page + "쪽에 메모로 붙였습니다";
+          qdone.textContent = "PDF " + (card.putPages || [card.page]).join("·") +
+                              "쪽에 메모로 붙였습니다";
           body.appendChild(qdone);
         } else {
           var qput = document.createElement("div");
           qput.className = "more";
           var qb = document.createElement("button");
-          qb.textContent = "이 답을 메모로 붙이기";
-          qb.title = "지금 보고 있는 쪽에 붙입니다";
-          qb.onclick = async function () {
-            card.memo = mdPlain(card.summary).replace(/\n{2,}/g, "\n").trim().slice(0, 300);
-            // 대화는 쪽에 매인 게 아니다. 지금 보고 있는 쪽에 붙인다
-            if (card.scope === "chat" || !card.page) card.page = state.page;
-            card.inserted = true;
-            card.declined = false;
-            if (!card.pin) await placeMemoFor(card);
-            saveCard(card);
-            closeMemoEdit();
-            card.editingMemo = true;        // 길면 바로 줄일 수 있게
-            renderCards(); drawMemos();
-          };
+          // 어디에 붙는지 단추에 적는다 — 전체·여러 쪽이면 보고 있는 쪽이 아니다
+          var tgt = answerParts(card).map(function (p) { return p.page; });
+          qb.textContent = tgt.length > 1
+            ? tgt.join("·") + "쪽에 나눠 붙이기"
+            : tgt[0] + "쪽에 메모로 붙이기";
+          qb.title = tgt.length > 1
+            ? "답에 나온 쪽마다 그 쪽 이야기만 붙입니다"
+            : "이 답을 그 쪽에 메모로 붙입니다";
+          qb.onclick = function () { attachAnswer(card); };
           qput.appendChild(qb);
           body.appendChild(qput);
         }
@@ -4212,15 +4289,17 @@
           renderCards();
         };
         var rm = document.createElement("button");
-        rm.textContent = card.manual ? "지우기" : "메모 빼기";
+        // 목록에 카드가 없는 메모(직접 쓴 것, 답을 나눠 붙인 것)는 빼는 게 곧 지우는 것
+        var own = card.manual || card.loose;
+        rm.textContent = own ? "지우기" : "메모 빼기";
         rm.onclick = function () {
           memoEditor = null;
-          if (card.manual) {
+          if (own) {
             var at = state.cards.indexOf(card);
             state.cards = state.cards.filter(function (c) { return c !== card; });
             deleteCard(card);
             drawMemos(); renderCards();
-            offerUndo("직접 쓴 메모를 지웠습니다.", function () {
+            offerUndo((card.manual ? "직접 쓴 메모" : "붙인 메모") + "를 지웠습니다.", function () {
               card.editingMemo = false;      // 편집하다 지웠어도 되살릴 땐 평소 모습으로
               state.cards.splice(at, 0, card);
               saveCard(card);
@@ -4907,6 +4986,8 @@
 
   async function showSummaryPicker() {
     var list = state.cards.filter(function (c) {
+      // 답을 쪽마다 나눠 붙인 메모(loose)는 원래 카드에 그 글이 다 들어 있다
+      if (c.loose) return false;
       return c.qna ? c.summary : (!c.manual && (c.summary || c.memo));
     });
     list = list.concat(await markItems());
