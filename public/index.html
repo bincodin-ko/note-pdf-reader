@@ -1080,12 +1080,12 @@
       </select>
       <button id="expPdf" disabled>페이지 추출</button>
       <!--
-        기본으로 켜 둔다. 끄면 메모가 PDF 주석으로 들어가는데, 주석을 안 그리는
-        뷰어가 흔해서 "원본이 하나 더 생겼다"처럼 보인다. 눈에 보이는 게 먼저다.
+        기본은 꺼 둔다. 구우면 다시 고칠 수 없다 — 되돌릴 수 없는 쪽을 말없이
+        골라 주면 안 된다. 남에게 낼 파일일 때만 사람이 켜서 굽는다.
       -->
-      <label class="burn" title="메모를 페이지에 그림처럼 그려 넣습니다. 어떤 뷰어에서도 보입니다. 끄면 주석으로 들어가 이 앱에서 다시 고칠 수 있지만, 주석을 안 그리는 뷰어에서는 안 보입니다">
-        <input type="checkbox" id="expBurn" checked disabled />
-        메모를 그림으로 굽기 (끄면 다시 고칠 수 있지만 뷰어에 따라 안 보일 수 있음)
+      <label class="burn" title="메모를 페이지에 그림처럼 그려 넣습니다. 어떤 뷰어에서도 보이지만 이 파일로는 다시 고칠 수 없습니다. 꺼 두면 주석으로 들어가 이 앱에서 이어 고칠 수 있습니다">
+        <input type="checkbox" id="expBurn" disabled />
+        메모를 그림으로 굽기 (켜면 어디서나 보이지만 다시 못 고칩니다)
       </label>
     </div>
   </div>
@@ -1806,15 +1806,22 @@
      * 캔버스 화소 수에 상한을 둔다.
      *
      * 4K 화면을 꽉 채우면 폭*배율*dpr 로 8백만 화소가 넘어가고, 쪽을 넘길
-     * 때마다 그만큼을 새로 그리느라 눈에 띄게 느려진다. 화질 차이는 거의
-     * 없으면서 그 구간을 없앤다. 두 쪽 보기면 두 쪽 몫으로 친다.
+     * 때마다 그만큼을 새로 그리느라 눈에 띄게 느려진다. 두 쪽 보기면 두 쪽
+     * 몫으로 친다.
+     *
+     * 상한에 걸리면 화면 화소보다 성기게 그려 놓고 브라우저가 늘리게 되므로
+     * 글자가 흐려진다. 그래서 상한은 "느려서 못 쓸 때"만 걸려야 한다.
+     *
+     * 반대쪽(더 촘촘히 그려 두고 줄이기)도 재 봤지만 더 나빴다. pdf.js는 그릴
+     * 크기에 맞춰 글자를 다듬는데, 크게 그려서 브라우저가 줄이면 그 다듬은
+     * 것이 뭉개진다. 화면 화소와 1:1이 가장 곱다.
      */
     var dpr = state.dpr, total = 0;
     pages.forEach(function (p) {
       var v = p.getViewport({ scale: state.scale * dpr });
       total += v.width * v.height;
     });
-    var budget = 4.5e6 * pages.length;
+    var budget = 12e6 * pages.length;
     if (total > budget) dpr = dpr * Math.sqrt(budget / total);
     state.dprUsed = dpr;
 
@@ -3067,13 +3074,58 @@
   }
 
   /*
+   * 붙일 때 한 번 더 줄인다.
+   *
+   * 오려낸 것은 정리와 함께 "메모용 3~5줄"을 따로 받아 둔다(runCard). 물어본
+   * 답에는 그게 없어서 답을 통째로 붙였고, 특히 대화는 답이 길어 메모가 쪽을
+   * 덮었다. 받을 때가 아니라 붙일 때 줄인다 — 안 붙일 답까지 값을 치를 이유가
+   * 없다. 이미 메모만 한 길이면 부르지 않는다.
+   */
+  var MEMO_KEEP = 110;             // 이 아래면 이미 메모 길이다. 부르지 않는다
+  var MEMO_CAP = 170;              // 다섯 줄 × 스물여덟 자 언저리
+
+  async function condense(text) {
+    var t = mdPlain(text || "").replace(/\n{2,}/g, "\n").trim();
+    if (t.length <= MEMO_KEEP) return t.slice(0, 300);
+    try {
+      /*
+       * 오려낸 것과 같은 JSON 꼴로 받는다. 그냥 "줄여 달라"고 하면
+       * "정리해드리면:" 같은 머리말이 먼저 오고 그게 메모에 그대로 남는다.
+       */
+      var raw = await callClaude([{ role: "user", content: [{ type: "text", text:
+        "다음 글을 PDF 여백에 붙일 메모로 줄이세요.\n\n" + t.slice(0, 4000) +
+        "\n\n한국어로 답하고, 아래 JSON만 출력하세요. 설명이나 코드블록 표시는 넣지 마세요.\n" +
+        '{"memo": "다섯 줄 이내, 각 줄 28자 이내. 줄바꿈 \\n 으로 구분. ' +
+        '나중에 이 줄만 봐도 무슨 내용인지 알 수 있게 구체적으로."}' }] }]);
+      var clean = raw.replace(/```json|```/g, "").trim(), got = "";
+      try { got = JSON.parse(clean).memo || ""; } catch (e) { got = clean; }
+
+      /*
+       * 줄 수도 길이도 코드로 막는다. 시켜 놓고 믿기만 하면 여섯 줄이 온다.
+       * 자르는 건 줄 단위로 — 글자 수로 끊으면 말이 중간에서 잘린다.
+       */
+      var lines = memoText(got).split("\n").slice(0, 5), out = [], used = 0;
+      for (var i = 0; i < lines.length; i++) {
+        if (out.length && used + lines[i].length > MEMO_CAP) break;
+        out.push(lines[i]); used += lines[i].length;
+      }
+      return out.join("\n") || memoText(t);
+    } catch (e) {
+      return memoText(t);          // 못 줄였다고 못 붙일 이유는 없다
+    }
+  }
+
+  /*
    * 첫 쪽은 카드 자신이 맡고, 나머지 쪽은 목록에 올리지 않는 메모로 따로
    * 만든다(loose). 쪽마다 카드가 하나씩 생기면 질문 하나가 목록을 다 채운다.
    */
   async function attachAnswer(card, quiet) {
     var parts = answerParts(card);
+    if (parts.some(function (p) { return p.text.length > MEMO_KEEP; })) {
+      setStatus("메모로 줄이는 중…");
+    }
     card.page = parts[0].page;
-    card.memo = memoText(parts[0].text);
+    card.memo = await condense(parts[0].text);
     card.inserted = true;
     card.declined = false;
     card.pin = null;
@@ -3088,7 +3140,7 @@
         qna: true,
         scope: card.scope,
         question: card.question,
-        memo: memoText(parts[i].text),
+        memo: await condense(parts[i].text),
         summary: parts[i].text
       };
       state.cards.push(kid);
