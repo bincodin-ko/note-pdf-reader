@@ -77,11 +77,12 @@
   .bar {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 8px 17px;
+    gap: 12px;
+    padding: 14px 24px;
     background: var(--nav);
     color: #fff;
     flex-wrap: wrap;
+    row-gap: 10px;
   }
 
   .mark {
@@ -127,6 +128,7 @@
     background: var(--nav-btn);
     border-color: var(--nav-btn);
     color: #fff;
+    padding: 9px 15px;            /* 가이드의 button-dark-utility */
   }
   .bar button:hover:not(:disabled) { border-color: #48484a; color: #fff; }
 
@@ -168,20 +170,20 @@
   .pageno {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: 6px;
     color: var(--muted);
-    font-size: 13px;
+    font-size: 14px;
     font-variant-numeric: tabular-nums;
   }
   .pageno input {
-    width: 42px;
+    width: 48px;
     text-align: center;
     font: inherit;
     color: var(--text);
     background: var(--ink);
     border: 1px solid var(--rule);
     border-radius: 6px;
-    padding: 4px 2px;
+    padding: 7px 2px;
   }
   .pageno input:focus { outline: none; border-color: var(--accent-focus); }
 
@@ -199,7 +201,7 @@
 
   /* 자동 넣기 고르기 — 접힌 버튼 하나 + 누를 때만 펴지는 목록 */
   .autow { position: relative; flex: 0 0 auto; }
-  .autobtn { font-size: 12.5px; padding: 6px 11px; color: var(--muted); }
+  .autobtn { font-size: 14px; padding: 9px 15px; color: var(--muted); }
   .autobtn b { color: var(--accent); font-weight: 600; }
   .autobtn.on { border-color: var(--accent); color: var(--accent); }
   .autopop {
@@ -283,7 +285,7 @@
   .stage {
     flex: 1;
     overflow: auto;
-    padding: 20px;
+    padding: 32px;
     display: flex;
     justify-content: center;
     /*
@@ -447,7 +449,7 @@
   .exitfocus.gone { display: none; }
 
   .noteshead {
-    padding: 12px 14px;
+    padding: 17px;
     border-bottom: 1px solid var(--rule);
     display: flex;
     align-items: center;
@@ -468,7 +470,7 @@
   }
 
   /* 흰 카드가 읽히도록 목록 바탕은 parchment로 둔다 */
-  .cards { flex: 1; overflow-y: auto; padding: 12px; background: var(--ink); }
+  .cards { flex: 1; overflow-y: auto; padding: 17px; background: var(--ink); }
 
   .hint {
     color: var(--muted);
@@ -491,7 +493,7 @@
     background: #fff;
     border-bottom: 1px solid var(--rule);
   }
-  .cardbody { padding: 10px 12px 12px; }
+  .cardbody { padding: 14px 17px 17px; }
   .cardmeta {
     font-size: 12px;
     color: var(--muted);
@@ -611,8 +613,8 @@
     display: none;
     align-items: center;
     gap: 6px;
-    font-size: 12px;
-    padding: 5px 12px;
+    font-size: 13px;
+    padding: 8px 14px;
     border-radius: 9999px;
     border: 1px solid #48484a;
     background: var(--nav-btn);
@@ -654,7 +656,7 @@
 
   /* 질문 입력칸 — 내보내기 버튼 위, 카드 목록 바로 아래 */
   .askbar {
-    padding: 10px 12px;
+    padding: 14px 17px;
     border-top: 1px solid var(--rule);
     display: flex;
     gap: 8px;
@@ -765,7 +767,7 @@
   }
 
   .foot {
-    padding: 10px 12px;
+    padding: 14px 17px;
     border-top: 1px solid var(--rule);
     display: flex;
     flex-wrap: wrap;
@@ -786,7 +788,7 @@
   .foot .burn input { margin: 0; }
 
   .status {
-    padding: 6px 14px;
+    padding: 9px 24px;
     font-size: 13px;
     color: var(--muted);
     border-top: 1px solid var(--rule);
@@ -904,8 +906,8 @@
   .tool button {
     border: 0;
     border-radius: 0;
-    font-size: 12.5px;
-    padding: 6px 10px;
+    font-size: 14px;
+    padding: 9px 14px;
     color: var(--muted);
     background: transparent;
   }
