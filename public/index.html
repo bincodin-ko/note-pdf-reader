@@ -656,23 +656,29 @@
 
   /* 질문 입력칸 — 내보내기 버튼 위, 카드 목록 바로 아래 */
   .askbar {
-    padding: 14px 17px;
+    padding: 12px 14px;
     border-top: 1px solid var(--rule);
     display: flex;
-    gap: 8px;
+    gap: 6px;
+    align-items: center;
   }
-  /* 묻는 칸은 가이드의 search-input — 알약이고 본문 크기다 */
+  /*
+   * 묻는 칸은 가이드의 search-input(알약)이되 글자는 15px다.
+   * 17px로 뒀더니 350px 패널에서 "이 쪽 / 묻는 칸 / 묻기"가 한 줄에 안 들어가
+   * 안내글이 "이 쪽에 ㄷ"처럼 잘렸다. 가이드의 17px는 읽는 글의 값이고,
+   * 이 줄은 셋이 자리를 나눠 쓰는 곳이다.
+   */
   .askbar input {
-    flex: 1;
+    flex: 1 1 auto;
     min-width: 0;
     font: inherit;
-    font-size: 17px;
-    letter-spacing: -0.374px;
+    font-size: 15px;
+    letter-spacing: -0.3px;
     color: var(--text);
     background: var(--ink-2);
     border: 1px solid var(--rule);
     border-radius: 9999px;
-    padding: 9px 16px;
+    padding: 8px 14px;
   }
   .askbar input:focus { outline: none; border-color: var(--accent-focus); }
   /* 쪽 범위 칸 — "여러 쪽"일 때만 나온다 */
@@ -684,7 +690,8 @@
     padding: 8px 4px;
   }
   .askbar input.qrange.gone { display: none; }
-  .askbar button { font-size: 13px; padding: 8px 12px; }
+  .askbar button { font-size: 13px; padding: 8px 14px; flex: 0 0 auto; white-space: nowrap; }
+  .askbar .primary { padding: 8px 16px; }
 
   /* 질문 카드는 오려낸 카드와 구분되게 왼쪽에 띠를 둔다 */
   .card.qna { border-left: 3px solid var(--accent); }
@@ -743,10 +750,11 @@
 
   .scope {
     font-size: 12px;
-    padding: 6px 12px;
+    padding: 7px 11px;
     border-radius: 9999px;
     color: var(--muted);
     flex: 0 0 auto;
+    white-space: nowrap;
   }
   .scope.all { color: var(--accent); border-color: var(--accent); }
   .scope.chat { color: var(--accent); border-color: var(--accent); }
@@ -758,6 +766,7 @@
   .foot select {
     font: inherit;
     font-size: 12px;
+    max-width: 130px;
     color: var(--text);
     background: var(--ink);
     border: 1px solid var(--rule);
@@ -767,13 +776,23 @@
   }
 
   .foot {
-    padding: 14px 17px;
+    padding: 12px 14px;
     border-top: 1px solid var(--rule);
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: 6px;
   }
-  .foot button { flex: 1; font-size: 13px; padding: 8px; }
+  /*
+   * nowrap이 핵심이다. flex:1로 나눠 주다 보니 자리가 모자랄 때 "페이지 추출"이
+   * 글자 단위로 접혀 세로 세 줄이 됐다. 줄이려면 줄이되 글자는 쪼개지 않는다.
+   */
+  .foot button {
+    flex: 1 1 auto;
+    font-size: 13px;
+    padding: 8px 10px;
+    white-space: nowrap;
+  }
+  .foot .primary { padding: 8px 14px; }
 
   /* 굽기 선택은 버튼 아래 한 줄을 통째로 쓴다 — 설명이 길어 옆에 붙으면 잘린다 */
   .foot .burn {
@@ -2995,17 +3014,27 @@
     var r01 = toPageRect(rect, slot);
     if (!(r01.w > 0 && r01.h > 0)) return;
 
-    // 원본에서 크게 다시 그려 온다. 못 하면 화면에서 잘라 쓴다
+    /*
+     * 원본에서 크게 다시 그려 온다. 못 하면 화면에서 잘라 쓴다.
+     *
+     * 화면에서 자르면 축소해 놓고 오렸을 때 그 자리의 화소가 몇 개 없어
+     * 뭉갠다. 원본에서 다시 그리면 배율과 상관이 없다.
+     *
+     * 썸네일을 560px로 두었던 건 정리 패널이 350px 고정이던 시절의 값이다.
+     * 지금은 패널 폭을 끌어서 늘릴 수 있고(창의 60%까지), 축소해 놓고 오리면
+     * 한 장에 담기는 내용도 많아진다. 둘 다 같은 결과로 나타난다 — 글자 하나에
+     * 돌아가는 화소가 줄어 흐려진다. 그래서 담는 크기를 키웠다.
+     */
     var hi = null;
-    try { hi = await cropFromPdf(slot.page, r01, 1600); } catch (e) {}
-    var full = hi || cropImage(rect, 1400);
-    var thumb = hi ? shrinkTo(hi, 560) : cropImage(rect, 560);
+    try { hi = await cropFromPdf(slot.page, r01, 2000); } catch (e) {}
+    var full = hi || cropImage(rect, 1600);
+    var thumb = hi ? shrinkTo(hi, 1000) : cropImage(rect, 1000);
     var id = "c" + Date.now();
 
     var card = {
       id: id,
       page: slot.page,
-      img: thumb.toDataURL("image/jpeg", 0.8),
+      img: thumb.toDataURL("image/jpeg", 0.85),
       rect: r01,
       memo: "", summary: "", detail: "",
       inserted: false,
