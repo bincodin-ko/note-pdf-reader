@@ -9,19 +9,36 @@
 <body>
 <div id="root">
 <style>
+  /*
+   * 색과 글자는 Apple 디자인 가이드를 따른다.
+   *
+   * 두 갈래로 나눠 둔 게 핵심이다.
+   *   --accent  누를 수 있는 것 전부. 파랑 하나뿐이고 두 번째 강조색은 없다
+   *   --marker  형광펜·메모의 노랑. 이건 꾸밈이 아니라 내용이라 그대로 둔다
+   * 예전에는 노랑 하나가 두 일을 겸했다. 그래서 "누를 수 있다"는 신호와
+   * "칠해 둔 자국"이 같은 색이라 구분이 안 됐다.
+   */
   :root {
-    --ink: #141d27;
-    --ink-2: #1b2836;
-    --ink-3: #22323f;
-    --rule: #2f4457;
+    --ink: #f5f5f7;                /* 바탕(parchment) — 쪽이 놓이는 자리 */
+    --ink-2: #ffffff;              /* 패널·카드 */
+    --ink-3: #fafafc;              /* 살짝 눌린 자리(pearl) */
+    --rule: #e0e0e0;               /* 실선 한 올 */
     --paper: #ffffff;
-    --text: #dfe8f0;
-    --muted: #8ba0b4;
+    --text: #1d1d1f;               /* 먹색. 순검정이 아니다 */
+    --muted: #7a7a7a;
+    --accent: #0066cc;             /* 누를 수 있는 것은 전부 이 색 */
+    --accent-focus: #0071e3;       /* 키보드 초점 테두리 */
+    --accent-dark: #2997ff;        /* 검은 바탕 위의 파랑 — 진한 파랑은 묻힌다 */
+    --nav: #000000;                /* 위 줄만 진짜 검정 */
+    --nav-btn: #1d1d1f;
     --marker: #ffd83d;
     --marker-soft: rgba(255, 216, 61, 0.22);
-    --danger: #ff8b6b;
+    --danger: #c7341c;
+    /* 이 그림자 하나만 쓴다. 쪽과 그 위에 붙은 메모에만 */
+    --lift: 0 5px 30px 3px rgba(0, 0, 0, 0.14);
     --notes-w: 350px;              /* 정리 패널 폭 — 쪽 번호 표시가 이 값을 따라간다 */
-    --note-fs: 14px;        /* 정리 패널 글자 크기. 사용자가 바꾼다 */
+    /* 읽는 글은 17px — 가이드가 정한 "훑지 말고 읽는" 속도다. 사용자가 바꾼다 */
+    --note-fs: 17px;
   }
 
   * { box-sizing: border-box; }
@@ -31,8 +48,8 @@
   #root {
     background: var(--ink);
     color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo",
-      "Pretendard", "Noto Sans KR", "Malgun Gothic", sans-serif;
+    font-family: "SF Pro Text", system-ui, -apple-system, BlinkMacSystemFont,
+      "Apple SD Gothic Neo", "Pretendard", "Noto Sans KR", "Malgun Gothic", sans-serif;
     /*
      * min-height가 아니라 height다.
      * min-height면 정리 패널 내용이 길어질 때 #root가 화면 밖으로 늘어나고,
@@ -43,25 +60,36 @@
     overflow: hidden;
     display: flex;
     flex-direction: column;
-    font-size: 15px;
-    line-height: 1.6;
+    /*
+     * 가이드의 본문은 17px이지만 그건 읽는 글에 대한 값이다. 위 줄·단추는
+     * 14px(button-utility)로 두고, 읽는 곳(정리 카드)만 17px로 간다.
+     * 수업 중에 쓰는 도구라 위 줄이 두꺼워지면 그만큼 자료가 줄어든다.
+     */
+    font-size: 14px;
+    line-height: 1.47;
+    letter-spacing: -0.224px;
   }
 
+  /*
+   * 위 줄은 가이드의 global-nav다 — 이 앱에서 순검정이 나오는 유일한 곳.
+   * 테두리도 그림자도 없다. 색이 바뀌는 것 자체가 구분선이다.
+   */
   .bar {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 10px 14px;
-    border-bottom: 1px solid var(--rule);
-    background: var(--ink-2);
+    gap: 8px;
+    padding: 8px 17px;
+    background: var(--nav);
+    color: #fff;
     flex-wrap: wrap;
   }
 
   .mark {
-    font-weight: 700;
-    letter-spacing: -0.02em;
+    font-weight: 600;
+    letter-spacing: -0.374px;
     margin-right: 4px;
-    font-size: 15px;
+    font-size: 17px;
+    color: #fff;
   }
   .mark span { color: var(--marker); }
   /* 어느 빌드를 보고 있는지 한눈에 — 설치파일 이름만으로는 구분이 안 된다 */
@@ -73,26 +101,69 @@
     align-self: center;
   }
 
+  /*
+   * 단추 문법은 둘뿐이다. 유틸은 8px 모서리, 누르는 것(primary)은 알약.
+   * 그 사이의 모서리는 쓰지 않는다 — 문법이 섞이면 무엇이 주인지 흐려진다.
+   */
   button {
     font: inherit;
     font-size: 14px;
+    letter-spacing: -0.224px;
     color: var(--text);
-    background: var(--ink-3);
+    background: var(--ink-2);
     border: 1px solid var(--rule);
-    border-radius: 7px;
+    border-radius: 8px;
     padding: 7px 12px;
     cursor: pointer;
   }
-  button:hover:not(:disabled) { border-color: var(--marker); }
+  button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
   button:disabled { opacity: 0.4; cursor: default; }
-  button:focus-visible { outline: 2px solid var(--marker); outline-offset: 2px; }
+  button:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: 2px; }
+  /* 눌린 느낌은 색이 아니라 크기로 준다 — 가이드가 정한 유일한 미세동작 */
+  button:active:not(:disabled) { transform: scale(0.95); }
 
-  .primary {
-    background: var(--marker);
-    color: #1c1500;
-    border-color: var(--marker);
-    font-weight: 650;
+  /* 위 줄 안에서는 어두운 유틸 단추가 된다 */
+  .bar button {
+    background: var(--nav-btn);
+    border-color: var(--nav-btn);
+    color: #fff;
   }
+  .bar button:hover:not(:disabled) { border-color: #48484a; color: #fff; }
+
+  .primary,
+  .bar .primary {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+    border-radius: 9999px;
+    font-weight: 400;
+    padding: 7px 18px;
+  }
+  .primary:hover:not(:disabled),
+  .bar .primary:hover:not(:disabled) { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+  /*
+   * 검은 줄 안의 실선은 밝은 회색이면 너무 튄다. 어두운 쪽 실선을 따로 둔다 —
+   * 같은 "한 올"이라도 바탕이 검으면 값이 달라야 같은 무게로 보인다.
+   */
+  .bar .tool { border-color: #48484a; }
+  .bar .tool button { color: #cccccc; }
+  .bar .tool button + button { border-left: 1px solid #48484a; }
+  .bar .pageno { color: #cccccc; }
+  .bar .pageno input {
+    background: var(--nav-btn);
+    border-color: #48484a;
+    color: #fff;
+    border-radius: 8px;
+  }
+  .bar .pageno input:focus { border-color: var(--accent-focus); }
+  .bar .toggle { color: #cccccc; }
+  /* 숨길 것은 확실히 숨는다 — .gone을 요소마다 따로 쓰다 보니 빠진 데가 생겼다 */
+  .engine.gone { display: none; }
+  .bar .autobtn { color: #cccccc; }
+  .bar .autobtn b { color: var(--accent-dark); }
+  .bar .autobtn.on { border-color: var(--accent-dark); color: #fff; }
+  .bar #spread.on, .bar #focus.on, .bar .engine.on { border-color: var(--accent-dark); color: var(--accent-dark); }
 
   .pageno {
     display: inline-flex;
@@ -112,7 +183,7 @@
     border-radius: 6px;
     padding: 4px 2px;
   }
-  .pageno input:focus { outline: none; border-color: var(--marker); }
+  .pageno input:focus { outline: none; border-color: var(--accent-focus); }
 
   .spacer { flex: 1; }
 
@@ -129,8 +200,8 @@
   /* 자동 넣기 고르기 — 접힌 버튼 하나 + 누를 때만 펴지는 목록 */
   .autow { position: relative; flex: 0 0 auto; }
   .autobtn { font-size: 12.5px; padding: 6px 11px; color: var(--muted); }
-  .autobtn b { color: var(--marker); font-weight: 600; }
-  .autobtn.on { border-color: rgba(255, 216, 61, 0.5); }
+  .autobtn b { color: var(--accent); font-weight: 600; }
+  .autobtn.on { border-color: var(--accent); color: var(--accent); }
   .autopop {
     position: absolute;
     right: 0;
@@ -139,9 +210,14 @@
     width: 236px;
     padding: 8px;
     border: 1px solid var(--rule);
-    border-radius: 10px;
-    background: var(--ink-2);
-    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5);
+    border-radius: 18px;
+    /*
+     * 떠 있는 것은 그림자로 띄우지 않는다. 실선 한 올과 흐린 유리로 띄운다 —
+     * 그림자는 쪽(제품 사진)에만 쓴다.
+     */
+    background: rgba(255, 255, 255, 0.92);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
   }
   .autopop.gone { display: none; }
   .aphead { font-size: 11.5px; color: var(--muted); padding: 2px 4px 7px; }
@@ -196,7 +272,7 @@
     padding: 6px 8px;
   }
   .bulkrow input { width: 68px; text-align: center; }
-  .toggle input { accent-color: var(--marker); width: 15px; height: 15px; }
+  .toggle input { accent-color: var(--accent); width: 15px; height: 15px; }
 
   .main {
     flex: 1;
@@ -227,17 +303,23 @@
   }
   .empty h2 {
     color: var(--text);
-    font-size: 19px;
-    font-weight: 650;
-    margin: 0 0 10px;
-    letter-spacing: -0.01em;
+    font-size: 34px;
+    font-weight: 600;
+    margin: 0 0 12px;
+    line-height: 1.1;
+    letter-spacing: -0.374px;      /* 큰 글자는 조금 좁혀야 "단단하게" 읽힌다 */
   }
-  .empty p { margin: 0 0 18px; font-size: 14px; }
+  .empty p { margin: 0 0 24px; font-size: 17px; line-height: 1.47; letter-spacing: -0.374px; }
 
+  /*
+   * 쪽은 이 앱의 "제품 사진"이다. 가이드가 그림자를 허락하는 유일한 자리 —
+   * 바탕(parchment) 위에 종이가 놓인 것으로 보이게 하는 게 그 목적이다.
+   * 단추·카드·패널에는 그림자를 쓰지 않는다.
+   */
   .pagewrap {
     position: relative;
     background: var(--paper);
-    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
+    box-shadow: var(--lift);
     line-height: 0;
   }
   canvas { display: block; }
@@ -274,10 +356,10 @@
     cursor: grab;
     overflow: hidden;
     z-index: 4;
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.28);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.16);   /* 쪽 위에 놓인 쪽지 — 쪽과 같은 계열 */
   }
   .memo.manual { border-left-color: #4aa3e0; }
-  .memo:hover { outline: 1px solid var(--marker); }
+  .memo:hover { outline: 1px solid var(--accent); }
   .memo.editing { cursor: default; overflow: visible; z-index: 8; }
   .memo .mline { white-space: pre; }
   .memo textarea {
@@ -301,7 +383,7 @@
     gap: 6px;
     white-space: nowrap;
   }
-  .memoacts button { font-size: 12px; line-height: 1.35; padding: 4px 9px; border-radius: 5px; }
+  .memoacts button { font-size: 12px; line-height: 1.35; padding: 4px 11px; border-radius: 8px; }
 
   .notes {
     /* 폭은 --notes-w 하나로 정한다. 모서리를 끌면 그 값이 바뀐다 */
@@ -337,7 +419,7 @@
     background: transparent;
     transition: background 0.15s;
   }
-  .ngrip:hover::after, .ngrip.on::after { background: var(--marker); }
+  .ngrip:hover::after, .ngrip.on::after { background: var(--accent); }
 
   /*
    * PDF만 보기.
@@ -385,7 +467,8 @@
     color: var(--muted);
   }
 
-  .cards { flex: 1; overflow-y: auto; padding: 12px; }
+  /* 흰 카드가 읽히도록 목록 바탕은 parchment로 둔다 */
+  .cards { flex: 1; overflow-y: auto; padding: 12px; background: var(--ink); }
 
   .hint {
     color: var(--muted);
@@ -396,9 +479,9 @@
   }
 
   .card {
-    background: var(--ink-3);
+    background: var(--ink-2);
     border: 1px solid var(--rule);
-    border-radius: 9px;
+    border-radius: 18px;
     overflow: hidden;
     margin-bottom: 12px;
   }
@@ -429,7 +512,7 @@
     text-decoration: underline dotted;
     text-underline-offset: 3px;
   }
-  .gopage:hover { color: var(--marker); }
+  .gopage:hover { color: var(--accent); }
 
   .cardmeta button {
     padding: 2px 7px;
@@ -465,7 +548,8 @@
     color: var(--muted);
   }
   .cardtext .mdgap { height: 7px; }
-  .cardtext b { color: var(--marker); font-weight: 600; }
+  /* 굵게는 색이 아니라 굵기로. 파랑은 누를 수 있는 것만 쓴다 */
+  .cardtext b { color: var(--text); font-weight: 600; }
   .cardtext code {
     font-family: ui-monospace, Menlo, Consolas, monospace;
     font-size: 0.92em;
@@ -494,7 +578,7 @@
     resize: vertical;
   }
   .cardedit input:focus,
-  .cardedit textarea:focus { outline: none; border-color: var(--marker); }
+  .cardedit textarea:focus { outline: none; border-color: var(--accent-focus); }
   .cardedit .editbtns { display: flex; gap: 8px; margin-top: 10px; }
   .cardedit .editbtns button { padding: 5px 14px; font-size: 13px; }
 
@@ -528,11 +612,11 @@
     align-items: center;
     gap: 6px;
     font-size: 12px;
-    padding: 5px 10px;
-    border-radius: 999px;
-    border: 1px solid var(--rule);
-    background: var(--ink-2);
-    color: var(--muted);
+    padding: 5px 12px;
+    border-radius: 9999px;
+    border: 1px solid #48484a;
+    background: var(--nav-btn);
+    color: #cccccc;
     cursor: pointer;
     white-space: nowrap;
   }
@@ -543,18 +627,18 @@
   }
   .chip.ready { color: var(--muted); }
   .chip.ready .dot { background: #57c98a; }
-  .chip.need { color: var(--marker); border-color: rgba(255,216,61,0.45); }
-  .chip.need .dot { background: var(--marker); }
-  .chip:hover { border-color: var(--marker); }
+  .chip.need { color: var(--accent); border-color: var(--accent); }
+  .chip.need .dot { background: var(--accent); }
+  .chip:hover { border-color: var(--accent); }
 
   /* Claude Code가 준비 안 됐을 때만 뜨는 띠 */
   .cliwarn {
     display: none;
     padding: 10px 12px;
     border-top: 1px solid var(--rule);
-    background: rgba(255, 139, 107, 0.10);
-    font-size: 12.5px;
-    line-height: 1.6;
+    background: var(--ink-3);
+    font-size: 14px;
+    line-height: 1.43;
     color: var(--text);
   }
   .cliwarn.on { display: block; }
@@ -575,18 +659,20 @@
     display: flex;
     gap: 8px;
   }
+  /* 묻는 칸은 가이드의 search-input — 알약이고 본문 크기다 */
   .askbar input {
     flex: 1;
     min-width: 0;
     font: inherit;
-    font-size: 13px;
+    font-size: 17px;
+    letter-spacing: -0.374px;
     color: var(--text);
-    background: var(--ink);
+    background: var(--ink-2);
     border: 1px solid var(--rule);
-    border-radius: 7px;
-    padding: 8px 10px;
+    border-radius: 9999px;
+    padding: 9px 16px;
   }
-  .askbar input:focus { outline: none; border-color: var(--marker); }
+  .askbar input:focus { outline: none; border-color: var(--accent-focus); }
   /* 쪽 범위 칸 — "여러 쪽"일 때만 나온다 */
   .askbar input.qrange {
     flex: 0 0 74px;
@@ -599,7 +685,7 @@
   .askbar button { font-size: 13px; padding: 8px 12px; }
 
   /* 질문 카드는 오려낸 카드와 구분되게 왼쪽에 띠를 둔다 */
-  .card.qna { border-left: 3px solid var(--marker); }
+  .card.qna { border-left: 3px solid var(--accent); }
   .qtext {
     font-size: calc(var(--note-fs) - 1px);
     overflow-wrap: anywhere;
@@ -613,7 +699,7 @@
   .pick { padding-top: 2px; }
   .picktitle { font-size: 12.5px; color: var(--muted); margin-bottom: 8px; }
   .pickrow { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 9px; }
-  .pickrow button { font-size: 12px; padding: 5px 10px; border-radius: 6px; }
+  .pickrow button { font-size: 12px; padding: 6px 14px; border-radius: 9999px; }
 
   /* 몇 문장으로 정리할지 — 숫자 칸과 버튼을 한 벌로 붙인다 */
   .nsent { display: inline-flex; align-items: stretch; }
@@ -629,7 +715,7 @@
     border-radius: 6px 0 0 6px;
     padding: 4px 2px;
   }
-  .nsent input:focus { outline: none; border-color: var(--marker); }
+  .nsent input:focus { outline: none; border-color: var(--accent-focus); }
   .nsent button {
     border-radius: 0 6px 6px 0 !important;
     font-size: 12px;
@@ -649,23 +735,23 @@
     color: var(--text); background: var(--ink);
     border: 1px solid var(--rule); border-radius: 6px; padding: 6px 8px;
   }
-  .pickfree input:focus { outline: none; border-color: var(--marker); }
+  .pickfree input:focus { outline: none; border-color: var(--accent-focus); }
   .pickfree button { font-size: 12px; padding: 6px 10px; }
-  .modetag { color: var(--marker); font-size: 11.5px; }
+  .modetag { color: var(--accent); font-size: 12px; }
 
   .scope {
-    font-size: 11.5px;
-    padding: 6px 8px;
-    border-radius: 7px;
+    font-size: 12px;
+    padding: 6px 12px;
+    border-radius: 9999px;
     color: var(--muted);
     flex: 0 0 auto;
   }
-  .scope.all { color: var(--marker); border-color: rgba(255, 216, 61, 0.5); }
-  .scope.chat { color: #7fc4ff; border-color: rgba(127, 196, 255, 0.5); }
+  .scope.all { color: var(--accent); border-color: var(--accent); }
+  .scope.chat { color: var(--accent); border-color: var(--accent); }
 
   /* 답에서 쪽 번호를 뽑아 만든 이동 버튼 */
   .jump { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
-  .jump button { font-size: 11.5px; padding: 3px 9px; border-radius: 5px; }
+  .jump button { font-size: 12px; padding: 4px 12px; border-radius: 9999px; }
 
   .foot select {
     font: inherit;
@@ -712,13 +798,13 @@
     margin-left: 8px;
     font-size: 12px;
     padding: 2px 9px;
-    border-radius: 5px;
-    color: var(--marker);
+    border-radius: 9999px;
+    color: var(--accent);
     border-color: rgba(255, 216, 61, 0.5);
   }
   /* 뺀 메모를 다시 붙이는 자리 */
   .reput { margin-top: 9px; }
-  .reput button { font-size: 12px; padding: 5px 11px; border-radius: 6px; }
+  .reput button { font-size: 12px; padding: 6px 14px; border-radius: 9999px; }
 
   .veil {
     position: fixed;
@@ -733,7 +819,7 @@
   .sheet {
     background: var(--ink-2);
     border: 1px solid var(--rule);
-    border-radius: 12px;
+    border-radius: 18px;
     width: min(620px, 100%);
     max-height: 84vh;
     display: flex;
@@ -823,9 +909,9 @@
     color: var(--muted);
     background: transparent;
   }
-  .tool button.on { background: var(--marker); color: #1c1500; font-weight: 650; }
+  .tool button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
   /* 두 쪽 보기일 때만 도드라지게 — 평소엔 다른 버튼과 같은 무게로 둔다 */
-  #spread.on { border-color: rgba(255, 216, 61, 0.5); color: var(--marker); }
+  #spread.on { border-color: var(--accent); color: var(--accent); }
 
   .pens { display: none; gap: 5px; align-items: center; }
   .pens.on { display: inline-flex; }
@@ -957,13 +1043,15 @@
     right: calc(var(--notes-w) + 16px);
     bottom: 42px;                        /* 아래 상태줄을 비켜선다 */
     z-index: 6;
-    padding: 5px 11px;
-    border-radius: 999px;
-    background: rgba(16, 26, 35, 0.86);
+    padding: 6px 14px;
+    border-radius: 9999px;
+    background: rgba(245, 245, 247, 0.8);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
     border: 1px solid var(--rule);
     color: var(--text);
-    font-size: 12.5px;
-    letter-spacing: 0.2px;
+    font-size: 14px;
+    letter-spacing: -0.224px;
     pointer-events: none;
     opacity: 0;
     transition: opacity 0.25s;
@@ -986,7 +1074,7 @@
   <div class="mark">오려둔 <span>공책</span></div>
   <span class="ver" id="ver"></span>
   <button class="chip" id="chip" title="Claude Code 상태"><span class="dot"></span><span id="chipText">확인 중…</span></button>
-  <button id="open">PDF 열기</button>
+  <button class="primary" id="open">PDF 열기</button>
   <input type="file" id="file" accept="application/pdf" hidden />
   <button id="prev" disabled>←</button>
   <span class="pageno">
@@ -1006,6 +1094,11 @@
   </span>
   <button id="spread" disabled title="한 쪽씩 / 두 쪽씩 보기">한 쪽</button>
   <button id="focus" disabled title="PDF만 크게 봅니다 (Esc로 빠져나옴)">PDF만</button>
+  <!--
+    정리를 누가 할지. 로컬 모델이 없으면 숨는다 — 고를 게 하나면 고르는 칸도
+    군더더기다. 클로드를 대신하는 게 아니라 길이 하나 더 있는 것이다.
+  -->
+  <button class="engine gone" id="engine" title="정리를 누가 할지 고릅니다">클로드</button>
   <button id="zoomout" disabled>축소</button>
   <button id="zoomin" disabled>확대</button>
   <div class="spacer"></div>
@@ -1069,7 +1162,7 @@
       <button class="scope" id="qscope" title="질문 범위를 바꿉니다" disabled>이 쪽</button>
       <input id="qRange" class="qrange gone" type="text" maxlength="11" title="볼 쪽 범위 (예: 120-135)" />
       <input id="q" type="text" placeholder="이 쪽에 대해 물어보기" maxlength="300" disabled />
-      <button id="qsend" disabled>묻기</button>
+      <button class="primary" id="qsend" disabled>묻기</button>
     </div>
     <div class="foot">
       <button id="expMd" disabled>정리 PDF</button>
@@ -1078,14 +1171,14 @@
         <option value="all">전체 쪽</option>
         <option value="page">이 쪽만</option>
       </select>
-      <button id="expPdf" disabled>페이지 추출</button>
+      <button class="primary" id="expPdf" disabled>페이지 추출</button>
       <!--
         기본은 꺼 둔다. 구우면 다시 고칠 수 없다 — 되돌릴 수 없는 쪽을 말없이
         골라 주면 안 된다. 남에게 낼 파일일 때만 사람이 켜서 굽는다.
       -->
       <label class="burn" title="메모를 페이지에 그림처럼 그려 넣습니다. 어떤 뷰어에서도 보이지만 이 파일로는 다시 고칠 수 없습니다. 꺼 두면 주석으로 들어가 이 앱에서 이어 고칠 수 있습니다">
         <input type="checkbox" id="expBurn" disabled />
-        메모를 그림으로 굽기 (켜면 어디서나 보이지만 다시 못 고칩니다)
+        메모를 그림으로 굽기
       </label>
     </div>
   </div>
@@ -1154,11 +1247,39 @@
    * 설치 여부만 보면 "깔려는 있는데 로그인 안 된" 상태가 통과해서,
    * 정작 AI를 부를 때가 되어서야 실패했다. 로그인까지 본다.
    */
+  /*
+   * 로컬 모델이 있는지.
+   *
+   * 없으면 관련 단추를 아예 안 보여 준다 — 눌러 봐야 실패하는 단추는
+   * 없는 것만 못하다. 서버가 Ollama에 물어본 결과를 그대로 받는다.
+   */
+  var localAI = { ok: false, text: "", vision: "", models: [], why: "" };
+  var engine = "claude";
+  try { engine = localStorage.getItem("capnote:engine") === "local" ? "local" : "claude"; } catch (e) {}
+
+  function syncEngine() {
+    var b = $("engine");
+    if (!b) return;
+    if (!localAI.text) {                       // 쓸 수 있는 로컬 모델이 없다
+      b.classList.add("gone");
+      engine = "claude";
+      return;
+    }
+    b.classList.remove("gone");
+    b.classList.toggle("on", engine === "local");
+    b.textContent = engine === "local" ? "로컬" : "클로드";
+    b.title = engine === "local"
+      ? "정리를 로컬 모델(" + localAI.text + ")이 합니다. 눌러서 클로드로 되돌립니다"
+      : "정리를 클로드가 합니다. 눌러서 로컬 모델(" + localAI.text + ")로 바꿉니다";
+  }
+
   function checkCli() {
     setChip("", "확인 중…");
     return fetch("/api/status")
       .then(function (r) { return r.json(); })
       .then(function (d) {
+        localAI = d.local || localAI;
+        syncEngine();
         if (d.mode !== "cli") {              // API 모드면 Claude Code가 필요 없다
           setChip("ready", "API 모드");
           $("cliwarn").classList.remove("on");
@@ -1217,6 +1338,19 @@
       .then(function () {
         setTimeout(function () { b.disabled = false; b.textContent = "로그인 창 열기"; }, 2500);
       });
+  };
+
+  /*
+   * 정리를 누가 할지 고른다. 자료마다 갈리는 게 아니라 사람 취향이므로
+   * localStorage에 적는다.
+   */
+  $("engine").onclick = function () {
+    engine = engine === "local" ? "claude" : "local";
+    try { localStorage.setItem("capnote:engine", engine); } catch (e) {}
+    syncEngine();
+    setStatus(engine === "local"
+      ? "이제 정리는 이 컴퓨터의 " + localAI.text + "이(가) 합니다."
+      : "이제 정리는 클로드가 합니다.");
   };
 
   $("cliRecheck").onclick = function () {
@@ -1690,6 +1824,7 @@
       _textCache = {};
       _tcCache = {};
       _pageText = null;
+      _ocr = null;
       cacheReset();
 
       // 열자마자 창에 맞춘다
@@ -2468,7 +2603,8 @@
     var res = await fetch("/api/ask", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages: messages })
+      // 어느 길로 갈지는 서버가 정하지만, 로컬을 고른 건 사람이다
+      body: JSON.stringify({ messages: messages, engine: engine })
     });
     if (!res.ok) {
       // 서버가 알려준 진짜 이유를 그대로 올려보낸다.
@@ -3295,7 +3431,11 @@
        */
       if (!digest.pages) {
         card.summary = "이 자료에서는 글자를 읽어낼 수 없습니다(그림으로만 된 스캔본입니다).\n" +
+                       (localAI.vision
+                         ? "아래에서 로컬 모델로 글자를 읽어 두면 전체 쪽에서 찾을 수 있습니다.\n"
+                         : "") +
                        "찾으려는 쪽으로 가서 \"이 쪽\"으로 물어보시면 화면을 보고 답합니다.";
+        card.needOcr = true;
         card.failed = true;
         card.pending = false;
         renderCards();
@@ -3310,6 +3450,7 @@
        * 만큼만 보고 "없습니다"라고 답하는데, 사용자 눈에는 앱이 자료를 안 읽은
        * 것처럼 보인다. 앱이 못 읽은 것이라고 먼저 말해 주는 편이 맞다.
        */
+      if (digest.pages < state.pages * 0.4) card.needOcr = true;
       card.note =
         digest.pages < state.pages * 0.4
           ? "이 자료는 " + state.pages + "쪽 중 " + digest.pages +
@@ -3399,19 +3540,119 @@
    */
   var _pageText = null;
 
+  /*
+   * 스캔본에서 읽어 둔 글자.
+   *
+   * 한 번 읽으면 자료별로 적어 둔다(IndexedDB). 668쪽을 다시 읽게 하면
+   * 아무도 두 번은 안 쓴다. 열쇠는 메모와 같은 자리 — 같은 파일이면
+   * 다음에 열어도 그대로 올라온다.
+   */
+  var _ocr = null;
+  function ocrKey(p) { return "capnote:" + state.docKey + ":ocr:" + p; }
+
+  async function loadOcr() {
+    if (_ocr) return _ocr;
+    _ocr = {};
+    if (!hasStorage() || !state.docKey) return _ocr;
+    try {
+      var r = await window.storage.list("capnote:" + state.docKey + ":ocr:");
+      for (var i = 0; i < r.keys.length; i++) {
+        var n = parseInt(String(r.keys[i]).split(":ocr:")[1], 10);
+        if (!(n >= 1)) continue;
+        var v = await window.storage.get(r.keys[i]);
+        if (v && v.value) _ocr[n] = String(v.value);
+      }
+    } catch (e) { /* 못 읽어도 원래대로 굴러간다 */ }
+    return _ocr;
+  }
+
   async function allPagesText() {
     if (_pageText) return _pageText;
+    var got = await loadOcr();
     var out = [];
     for (var i = 1; i <= state.pages; i++) {
+      var t = "";
       try {
         var pg = await state.pdf.getPage(i);
         var tc = await pg.getTextContent();
-        var t = tc.items.map(function (x) { return x.str; }).join(" ").replace(/\s+/g, " ").trim();
-        if (t) out.push({ page: i, text: t });
+        t = tc.items.map(function (x) { return x.str; }).join(" ").replace(/\s+/g, " ").trim();
       } catch (e) { /* 한 쪽을 못 읽어도 나머지로 답한다 */ }
+      // 글자 층이 없는 쪽은 읽어 둔 것으로 메운다. 있는 쪽은 그게 더 정확하다
+      if (!t && got[i]) t = String(got[i]).replace(/\s+/g, " ").trim();
+      if (t) out.push({ page: i, text: t });
     }
     _pageText = out;
     return out;
+  }
+
+  /*
+   * 글자 층이 없는 쪽을 센다. "스캔본이라 못 읽는다"고 말하기 전에
+   * 몇 쪽이 그런지는 알고 말해야 한다.
+   */
+  async function blankPages() {
+    var got = await loadOcr();
+    var out = [];
+    for (var i = 1; i <= state.pages; i++) {
+      if (got[i]) continue;
+      try {
+        var pg = await state.pdf.getPage(i);
+        var tc = await pg.getTextContent();
+        if (!tc.items.map(function (x) { return x.str; }).join("").trim()) out.push(i);
+      } catch (e) { out.push(i); }
+    }
+    return out;
+  }
+
+  /*
+   * 쪽 그림을 로컬 모델에 보내 글자를 받아 적는다.
+   *
+   * 한 쪽씩 보낸다. 로컬 모델은 한 번에 여러 장을 물리면 램이 터지거나
+   * 통째로 느려진다. 모든 쪽 정리와 같이 언제든 멈출 수 있고, 그때까지
+   * 읽은 것은 남는다 — 오래 걸리는 일은 중간에 그만둘 수 있어야 한다.
+   */
+  var ocrRun = null;
+
+  async function runOcr(pages) {
+    if (ocrRun) { setStatus("이미 글자를 읽는 중입니다."); return; }
+    ocrRun = { stop: false, done: 0, fail: 0, total: pages.length };
+    var got = await loadOcr();
+    setStatus("글자를 읽는 중… 0 / " + pages.length + "쪽");
+
+    for (var i = 0; i < pages.length && !ocrRun.stop; i++) {
+      var n = pages[i];
+      try {
+        var cv = await cropFromPdf(n, { x: 0, y: 0, w: 1, h: 1 }, 1400);
+        var r = await fetch("/api/ocr", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ image: cv.toDataURL("image/jpeg", 0.8).split(",")[1] })
+        });
+        var d = await r.json();
+        if (!r.ok) throw new Error(d.error || ("http " + r.status));
+        var t = String(d.text || "").trim();
+        if (t) {
+          got[n] = t;
+          if (hasStorage() && state.docKey) await window.storage.set(ocrKey(n), t);
+        }
+        ocrRun.done++;
+      } catch (e) {
+        ocrRun.fail++;
+        // 첫 쪽부터 실패하면 뒤를 다 돌려 봐야 시간만 버린다
+        if (ocrRun.fail === 1 && ocrRun.done === 0) {
+          setStatus("글자를 읽지 못했습니다: " + String(e.message || e), true);
+          break;
+        }
+      }
+      setStatus("글자를 읽는 중… " + (ocrRun.done + ocrRun.fail) + " / " + pages.length + "쪽" +
+                (ocrRun.fail ? " (" + ocrRun.fail + "쪽 실패)" : ""));
+    }
+
+    var n2 = ocrRun.done, stopped = ocrRun.stop;
+    ocrRun = null;
+    _pageText = null;                      // 다음 질문은 새로 읽은 글자까지 본다
+    if (n2) {
+      setStatus((stopped ? "멈췄습니다 — " : "") + n2 + "쪽에서 글자를 읽었습니다. 이제 전체 쪽에서 찾을 수 있습니다.");
+    }
   }
 
   /*
@@ -3777,6 +4018,29 @@
         nt.className = "cardnote";
         nt.textContent = card.note;
         body.appendChild(nt);
+      }
+
+      /*
+       * 스캔본이라 못 읽었을 때만 나온다. 로컬 모델이 없으면 아예 안 보인다 —
+       * 눌러 봐야 안 되는 단추를 두면 "이 앱은 안 된다"로 읽힌다.
+       */
+      if (card.needOcr && !card.pending && localAI.vision) {
+        var orow = document.createElement("div");
+        orow.className = "more";
+        var ob = document.createElement("button");
+        ob.className = "primary";
+        ob.textContent = ocrRun ? "읽는 중… 멈추기" : "로컬로 글자 읽기";
+        ob.title = "이 컴퓨터의 " + localAI.vision + " 모델이 쪽 그림에서 글자를 뽑습니다";
+        ob.onclick = async function () {
+          if (ocrRun) { ocrRun.stop = true; ob.textContent = "멈추는 중…"; return; }
+          var todo = await blankPages();
+          if (!todo.length) { setStatus("읽을 쪽이 없습니다 — 이미 다 읽었습니다."); return; }
+          ob.textContent = "읽는 중… 멈추기";
+          await runOcr(todo);
+          renderCards();
+        };
+        orow.appendChild(ob);
+        body.appendChild(orow);
       }
 
       var txt = document.createElement("div");
