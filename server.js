@@ -50,6 +50,107 @@ const MODE_LABEL = USE_CLI
   ? "Claude Code CLI (구독으로 처리)"
   : "Anthropic API · 모델 " + MODEL;
 
+/*
+ * 로컬 모델 (Ollama) — 클로드를 대신하는 게 아니라 길을 하나 더 내는 것이다.
+ *
+ * 두 가지를 맡긴다.
+ *   1) 스캔본 글자 읽기(OCR). 그림으로만 된 교재는 pdf.js가 글자를 못 뽑아
+ *      "전체 쪽에서 찾기"가 통째로 막혔다. 이건 작은 모델로도 된다.
+ *   2) 정리. 구독 없이 돌리거나 인터넷이 없을 때를 위한 선택지.
+ *      기본은 여전히 클로드다 — 로컬 3B가 더 잘 쓸 일은 없다.
+ *
+ * npm 패키지를 늘리지 않으려고 HTTP로만 붙는다. Ollama가 안 떠 있으면
+ * 이 기능들은 조용히 없는 것처럼 군다. 있는 척하고 실패하면 더 나쁘다.
+ */
+const OLLAMA = (process.env.CAPNOTE_OLLAMA || "http://127.0.0.1:11434").replace(/\/+$/, "");
+const LOCAL_TEXT_ENV = process.env.CAPNOTE_LOCAL_MODEL || "";
+const LOCAL_OCR_ENV = process.env.CAPNOTE_OCR_MODEL || "";
+
+/*
+ * 어떤 모델이 깔려 있는지는 사람마다 다르다. 이름을 못 박아 두면 "그 모델이
+ * 없습니다"만 반복하게 되므로, 깔린 것 중에서 고른다. 환경 변수로 지정하면
+ * 그게 먼저다.
+ */
+const TEXT_PICKS = [/exaone/i, /kanana/i, /hyperclova/i, /qwen3/i, /qwen2\.5/i, /gemma/i, /llama/i, /mistral/i];
+// 이름표가 제각각이다 — qwen2.5vl:7b, llama3.2-vision, llava, minicpm-v …
+const OCR_PICKS = [/hyperclova.*vision/i, /vision/i, /vl\b/i, /llava/i, /minicpm-v\b/i, /moondream/i];
+
+let tagCache = { at: 0, names: [], err: "" };
+
+async function localTags() {
+  if (Date.now() - tagCache.at < 30000) return tagCache;       // 상태를 자주 묻는다
+  try {
+    const c = new AbortController();
+    const t = setTimeout(() => c.abort(), 1500);               // 없을 때 오래 끌지 않는다
+    const r = await fetch(OLLAMA + "/api/tags", { signal: c.signal });
+    clearTimeout(t);
+    const j = await r.json();
+    const names = (j.models || []).map((m) => m.name).filter(Boolean);
+    tagCache = { at: Date.now(), names, err: "" };
+  } catch (e) {
+    // "fetch failed"는 사람에게 아무것도 안 알려 준다. 무엇을 하면 되는지를 적는다
+    tagCache = { at: Date.now(), names: [], err: "Ollama가 떠 있지 않습니다 (" + OLLAMA + ")" };
+  }
+  return tagCache;
+}
+
+function pickModel(names, envName, picks) {
+  if (envName && names.some((n) => n === envName || n.split(":")[0] === envName)) return envName;
+  if (envName) return "";                       // 지정했는데 없으면 말없이 딴 걸 쓰지 않는다
+  for (const re of picks) {
+    const hit = names.find((n) => re.test(n));
+    if (hit) return hit;
+  }
+  return "";
+}
+
+async function localState() {
+  const tags = await localTags();
+  return {
+    ok: tags.names.length > 0,
+    base: OLLAMA,
+    models: tags.names,
+    text: pickModel(tags.names, LOCAL_TEXT_ENV, TEXT_PICKS),
+    vision: pickModel(tags.names, LOCAL_OCR_ENV, OCR_PICKS),
+    why: tags.names.length ? "" : (tags.err || "모델이 하나도 없습니다")
+  };
+}
+
+/*
+ * 앱이 보내는 것은 Anthropic 꼴(content 블록 배열)이다. Ollama는 글과 그림을
+ * 따로 받으므로 여기서 옮겨 담는다. 앱 코드를 고치지 않으려는 것 —
+ * 브라우저는 어느 쪽으로 가는지 알 필요가 없다.
+ */
+function toOllama(messages) {
+  return (messages || []).map((m) => {
+    const parts = Array.isArray(m.content) ? m.content : [{ type: "text", text: String(m.content || "") }];
+    const text = parts.filter((p) => p.type === "text").map((p) => p.text).join("\n");
+    const images = parts.filter((p) => p.type === "image" && p.source && p.source.data)
+                        .map((p) => p.source.data);
+    const out = { role: m.role === "assistant" ? "assistant" : "user", content: text };
+    if (images.length) out.images = images;
+    return out;
+  });
+}
+
+async function localChat(messages, model, timeoutMs) {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), timeoutMs || 180000);   // 로컬은 느리다. 넉넉히
+  try {
+    const r = await fetch(OLLAMA + "/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model, messages: toOllama(messages), stream: false }),
+      signal: c.signal
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || ("ollama http " + r.status));
+    return String((j.message && j.message.content) || "");
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 const TYPES = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
@@ -188,7 +289,44 @@ async function ask(req, res) {
 
   req.on("end", async () => {
     try {
-      const { messages } = JSON.parse(raw);
+      const body = JSON.parse(raw);
+      const messages = body.messages;
+
+      /*
+       * 세 번째 길. 앱이 engine:"local"이라고 하면 로컬 모델로 간다.
+       * 앞의 두 길(구독·API)은 그대로 있다 — 고르는 것이지 바꾸는 게 아니다.
+       */
+      if (body.engine === "local") {
+        const st = await localState();
+
+        /*
+         * 오려낸 그림이 같이 오면 그림을 보는 모델로 보낸다. 글만 읽는 모델에
+         * 그림을 물리면 말없이 무시하고 엉뚱한 답을 쓴다 — 글자만 보는 쪽이
+         * 낫다고 사람이 판단할 수는 있어도, 앱이 몰래 그러면 안 된다.
+         */
+        const hasImage = (messages || []).some((m) =>
+          Array.isArray(m.content) && m.content.some((c) => c.type === "image"));
+        const model = hasImage ? (st.vision || st.text) : (st.text || st.vision);
+
+        if (!model) {
+          return send(res, 503, JSON.stringify({
+            error: "로컬 모델이 준비되지 않았습니다" + (st.why ? " (" + st.why + ")" : ""),
+            mode: "local"
+          }));
+        }
+        if (hasImage && !st.vision) {
+          return send(res, 503, JSON.stringify({
+            error: "오려낸 그림을 읽으려면 그림을 보는 로컬 모델이 필요합니다. " +
+                   "위 줄에서 클로드로 되돌리거나 ollama pull qwen2.5vl 하세요.",
+            mode: "local"
+          }));
+        }
+
+        const text = await localChat(messages, model);
+        return send(res, 200, JSON.stringify({
+          content: [{ type: "text", text }], mode: "local", model
+        }));
+      }
 
       if (USE_CLI) {
         const out = await askViaCli(messages);
@@ -214,6 +352,51 @@ async function ask(req, res) {
       send(res, r.status, out);
     } catch (e) {
       send(res, 500, JSON.stringify({ error: String(e.message || e), mode: MODE }));
+    }
+  });
+}
+
+/*
+ * 쪽 그림에서 글자만 뽑는다.
+ *
+ * 정리와 달리 이건 "보이는 대로 옮겨 적기"라 작은 모델로도 된다. 그래서
+ * 여기만 로컬로 돌려도 스캔본 교재의 "전체 쪽에서 찾기"가 열린다.
+ * 정리는 건드리지 않는다 — 각자 잘하는 일이 다르다.
+ */
+async function ocr(req, res) {
+  let raw = "";
+  req.on("data", (c) => {
+    raw += c;
+    if (raw.length > 25 * 1024 * 1024) req.destroy();
+  });
+
+  req.on("end", async () => {
+    try {
+      const { image } = JSON.parse(raw);
+      if (!image) return send(res, 400, JSON.stringify({ error: "그림이 없습니다" }));
+
+      const st = await localState();
+      if (!st.vision) {
+        return send(res, 503, JSON.stringify({
+          error: "글자를 읽을 로컬 모델이 없습니다" +
+                 (st.ok ? " (그림을 보는 모델이 필요합니다)" : (st.why ? " (" + st.why + ")" : ""))
+        }));
+      }
+
+      const text = await localChat([{
+        role: "user",
+        content: [
+          { type: "image", source: { data: image } },
+          { type: "text", text:
+            "이 쪽에 적힌 글자를 그대로 옮겨 적으세요.\n" +
+            "읽은 것만 적고 요약·설명·추측은 하지 마세요.\n" +
+            "머리말 없이 본문만 출력하세요. 글자가 없으면 빈 줄로 두세요." }
+        ]
+      }], st.vision);
+
+      send(res, 200, JSON.stringify({ text: String(text).trim(), model: st.vision }));
+    } catch (e) {
+      send(res, 500, JSON.stringify({ error: String(e.message || e) }));
     }
   });
 }
@@ -291,9 +474,11 @@ function openLoginTerminal() {
 http.createServer((req, res) => {
   if (req.method === "POST" && req.url === "/api/ask") return ask(req, res);
 
+  if (req.method === "POST" && req.url === "/api/ocr") return ocr(req, res);
+
   if (req.url === "/api/status") {
-    return claudeStatus().then(function (st) {
-      send(res, 200, JSON.stringify({ mode: MODE, version: VERSION, claude: st }));
+    return Promise.all([claudeStatus(), localState()]).then(function (r) {
+      send(res, 200, JSON.stringify({ mode: MODE, version: VERSION, claude: r[0], local: r[1] }));
     });
   }
 
@@ -328,8 +513,15 @@ http.createServer((req, res) => {
       // 키가 있는데도 안 쓴다는 걸 분명히 해야, 요금이 나갈까 걱정하지 않는다
       console.log("  ANTHROPIC_API_KEY가 환경에 있지만 쓰지 않습니다 (API를 쓰려면 CLAUDE_USE_API=1)");
     }
-    console.log("  준비: npm i -g @anthropic-ai/claude-code  &&  claude auth login\n");
+    console.log("  준비: npm i -g @anthropic-ai/claude-code  &&  claude auth login");
   } else {
-    console.log("  주의: 호출마다 요금이 나갑니다\n");
+    console.log("  주의: 호출마다 요금이 나갑니다");
   }
+
+  // 로컬 모델은 있으면 쓰고 없으면 그만이다. 있는지만 한 줄로 알린다
+  localState().then(function (st) {
+    console.log(st.text || st.vision
+      ? "  로컬 모델: 정리 " + (st.text || "없음") + " · 글자 읽기 " + (st.vision || "없음") + "\n"
+      : "  로컬 모델: 없음 (쓰려면 ollama serve — 없어도 앱은 그대로 돕니다)\n");
+  });
 });
