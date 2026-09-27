@@ -450,13 +450,23 @@
 
   .noteshead {
     padding: 17px;
+    flex-wrap: wrap;
+    row-gap: 8px;
     border-bottom: 1px solid var(--rule);
     display: flex;
     align-items: center;
     gap: 8px;
   }
-  .noteshead strong { font-size: 14px; font-weight: 650; }
-  .noteshead .count { color: var(--muted); font-size: 13px; }
+  .noteshead strong { font-size: 14px; font-weight: 600; white-space: nowrap; }
+  .noteshead .count { color: var(--muted); font-size: 13px; white-space: nowrap; }
+  /* 목록 머리의 "모든 쪽 정리" — 옆 글자 크기 단추에 밀리지 않게 폭을 지킨다 */
+  .bulkhead {
+    font-size: 12px;
+    padding: 6px 11px;
+    border-radius: 9999px;
+    white-space: nowrap;
+    flex: 0 0 auto;
+  }
   .noteshead .fs {
     margin-left: auto;
     display: flex;
@@ -659,6 +669,7 @@
     padding: 12px 14px;
     border-top: 1px solid var(--rule);
     display: flex;
+    flex-wrap: wrap;            /* 좁으면 짜부라뜨리지 말고 아랫줄로 */
     gap: 6px;
     align-items: center;
   }
@@ -669,8 +680,12 @@
    * 이 줄은 셋이 자리를 나눠 쓰는 곳이다.
    */
   .askbar input {
-    flex: 1 1 auto;
-    min-width: 0;
+    /*
+     * 줄이는 데도 바닥이 있다. 150px 밑으로는 안내글이 무슨 말인지 알아볼 수
+     * 없으므로, 더 좁아지면 짜부라뜨리지 말고 단추를 아랫줄로 내린다.
+     */
+    flex: 1 1 150px;
+    min-width: 150px;
     font: inherit;
     font-size: 15px;
     letter-spacing: -0.3px;
@@ -1172,6 +1187,12 @@
     <div class="noteshead">
       <strong>정리</strong>
       <span class="count" id="count"></span>
+      <!--
+        자동 넣기 팝업 안에만 두었더니 아무도 못 찾았다. 쪽마다 정리를 붙이는
+        일이니 정리 목록 머리에 있는 게 맞다. 누르면 같은 창이 열린다.
+      -->
+      <button class="bulkhead" id="bulkHead" disabled
+              title="쪽마다 한 번씩 물어 정리를 붙입니다">모든 쪽 정리</button>
       <span class="fs">
         <button id="fsDown" title="글자 작게 (Ctrl+&lt;)">가－</button>
         <button id="fsUp" title="글자 크게 (Ctrl+&gt;)">가＋</button>
@@ -1190,7 +1211,8 @@
     <div class="askbar">
       <button class="scope" id="qscope" title="질문 범위를 바꿉니다" disabled>이 쪽</button>
       <input id="qRange" class="qrange gone" type="text" maxlength="11" title="볼 쪽 범위 (예: 120-135)" />
-      <input id="q" type="text" placeholder="이 쪽에 대해 물어보기" maxlength="300" disabled />
+      <!-- 안내글이 길면 좁은 패널에서 잘린다. 어느 범위인지는 옆 칩이 이미 말해 준다 -->
+      <input id="q" type="text" placeholder="무엇이 궁금한가요?" maxlength="300" disabled />
       <button class="primary" id="qsend" disabled>묻기</button>
     </div>
     <div class="foot">
@@ -2086,7 +2108,7 @@
     $("pageIn").value = state.page;
     $("pageTotal").textContent = state.pages;
     showPageBadge();
-    ["prev", "next", "zoomin", "zoomout", "expMd", "expPdf", "q", "qsend", "qscope", "expScope", "expBurn", "spread", "focus", "toolClip", "toolHl", "mfsUp", "mfsDown"].forEach(function (id) {
+    ["prev", "next", "zoomin", "zoomout", "expMd", "expPdf", "q", "qsend", "qscope", "expScope", "expBurn", "spread", "focus", "toolClip", "toolHl", "mfsUp", "mfsDown", "bulkHead"].forEach(function (id) {
       $(id).disabled = false;
     });
     $("prev").disabled = state.page <= 1;
@@ -2875,6 +2897,8 @@
       renderAuto(); closeAuto();
     };
     $("bulkAll").onclick = function () { showBulkSheet(); };
+    // 목록 머리에서도 같은 창을 연다 — 두 군데지만 여는 것은 하나다
+    $("bulkHead").onclick = function () { closeAuto(); showBulkSheet(); };
 
     $("autoFree").addEventListener("keydown", function (e) {
       e.stopPropagation();                 // Delete·Ctrl+Z 단축키가 끼어들지 않게
@@ -3841,11 +3865,15 @@
    * 보내면 "자료에 없습니다"만 돌아온다. 그래서 자료를 아예 빼는 칸을 뒀다.
    * 버튼 하나를 눌러 돌려 쓴다 — 칸을 늘리면 그만큼 자료 볼 자리가 준다.
    */
+  /*
+   * 안내글은 짧아야 한다. 어느 범위인지는 왼쪽 칩이 이미 말해 주는데,
+   * 안내글에서 또 "이 쪽에 대해"라고 되뇌다 보니 좁은 패널에서 잘렸다.
+   */
   var Q_SCOPES = [
-    { id: "page",  label: "이 쪽",   hint: "이 쪽에 대해 물어보기" },
-    { id: "all",   label: "전체",    hint: "전체 쪽에서 찾아보기" },
-    { id: "range", label: "여러 쪽", hint: "이 범위를 보고 답합니다" },
-    { id: "chat",  label: "대화",    hint: "자료와 상관없이 물어보기" }
+    { id: "page",  label: "이 쪽",   hint: "이 쪽에서 물어보기" },
+    { id: "all",   label: "전체",    hint: "전체에서 찾아보기" },
+    { id: "range", label: "여러 쪽", hint: "이 범위에서 찾기" },
+    { id: "chat",  label: "대화",    hint: "자료와 상관없이" }
   ];
   var RANGE_MAX = 8;                      // 그림으로 보내는 쪽 수 상한
   var qScope = 0;
@@ -3920,7 +3948,7 @@
     $("count").textContent = list.length ? list.length + "장" : "";
 
     if (!list.length) {
-      box.innerHTML = '<div class="hint">아직 오려낸 것이 없습니다.<br />PDF 위에서 드래그해 보세요.<br />빈 곳을 두 번 누르면 직접 메모를 쓸 수 있고,<br />메모는 끌어서 옮길 수 있습니다.<br />아래 칸에 바로 물어봐도 됩니다.</div>';
+      box.innerHTML = '<div class="hint">아직 오려낸 것이 없습니다.<br />PDF 위에서 드래그해 보세요.<br />빈 곳을 두 번 누르면 직접 메모를 쓸 수 있고,<br />메모는 끌어서 옮길 수 있습니다.<br />아래 칸에 바로 물어봐도 됩니다.<br /><br />위의 <b>모든 쪽 정리</b>를 누르면 한 번에 다 붙입니다.</div>';
       return;
     }
 
