@@ -144,8 +144,14 @@
   button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
   button:disabled { opacity: 0.4; cursor: default; }
   button:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: 2px; }
-  /* 눌린 느낌은 색이 아니라 크기로 준다 — 가이드가 정한 유일한 미세동작 */
-  button:active:not(:disabled) { transform: scale(0.95); }
+  /*
+   * 눌린 느낌은 색이 아니라 크기로 준다 — 가이드가 정한 유일한 미세동작.
+   *
+   * transform은 하나뿐이라 자리를 잡는 데 쓰고 있으면 눌릴 때 그게 지워진다.
+   * 넘김 화살표가 누를 때마다 반 칸 아래로 떨어졌다 돌아온 게 그 탓이다.
+   * 그래서 자리 잡는 몫을 --place에 따로 두고 여기서 같이 쓴다.
+   */
+  button:active:not(:disabled) { transform: var(--place, translate(0)) scale(0.95); }
 
   /* 위 줄 안에서는 어두운 유틸 단추가 된다 */
   .bar button {
@@ -245,10 +251,14 @@
   .autobtn { font-size: 14px; padding: 9px 15px; color: var(--muted); }
   .autobtn b { color: var(--accent); font-weight: 600; }
   .autobtn.on { border-color: var(--accent); color: var(--accent); }
+  /*
+   * 위 줄에 overflow-x를 걸면서 이 팝업이 잘려 안 보이게 됐다. overflow가
+   * visible이 아니면 그 안의 absolute 자식도 같이 잘린다. 그래서 창 기준으로
+   * 띄우고(fixed) 자리는 열 때 단추를 재서 잡는다 — 단추가 어디로 밀렸든
+   * 늘 그 밑에 붙는다.
+   */
   .autopop {
-    position: absolute;
-    right: 0;
-    top: calc(100% + 6px);
+    position: fixed;
     z-index: 20;
     width: 236px;
     padding: 8px;
@@ -263,22 +273,36 @@
     -webkit-backdrop-filter: blur(20px);
   }
   .autopop.gone { display: none; }
-  .aphead { font-size: 11.5px; color: var(--muted); padding: 2px 4px 7px; }
-  .aplist { display: flex; flex-direction: column; gap: 3px; }
-  .aplist button {
-    text-align: left;
+  /*
+   * 이 팝업은 .bar 안에 있어서 ".bar button"의 검은 단추 차림을 물려받았다.
+   * 흰 바탕 팝업에 검은 알약이 박히고, 고른 항목은 흰 글씨라 아예 안 보였다 —
+   * "지금 뭐가 설정됐는지 모르겠다"의 정체다. 여기서 되돌린다.
+   */
+  .bar .autopop button {
+    background: var(--ink-2);
+    border-color: var(--rule);
+    color: var(--text);
     font-size: 12.5px;
     padding: 6px 9px;
-    border-radius: 6px;
+  }
+  .bar .autopop button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+
+  .aphead { font-size: 12px; color: var(--muted); padding: 2px 4px 7px; }
+  .aplist { display: flex; flex-direction: column; gap: 3px; }
+  .bar .aplist button {
+    text-align: left;
+    border-radius: 8px;
     background: transparent;
     border-color: transparent;
   }
-  .aplist button:hover { background: var(--ink-3); }
-  .aplist button.on {
-    background: var(--ink-3);
-    border-color: rgba(255, 216, 61, 0.5);
-    color: var(--marker);
+  .bar .aplist button:hover:not(:disabled) { background: var(--ink-3); color: var(--text); border-color: transparent; }
+  /* 고른 것은 파랑으로 채운다. 누를 수 있는 것은 전부 파랑이라는 규칙 그대로 */
+  .bar .aplist button.on {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
   }
+  .bar .aplist button.on:hover:not(:disabled) { background: var(--accent); color: #fff; }
   .apfree { display: flex; gap: 5px; margin-top: 8px; }
   .apfree input {
     flex: 1;
@@ -293,7 +317,10 @@
   }
   .apfree button { font-size: 12px; padding: 6px 9px; flex: 0 0 auto; }
   .apbulk { margin-top: 8px; border-top: 1px solid var(--rule); padding-top: 8px; }
-  .apbulk button { width: 100%; font-size: 12.5px; padding: 7px 9px; }
+  .bar .apbulk button { width: 100%; padding: 7px 9px; }
+  /* 메모 길이는 셋 중 하나를 고르는 것이라 알약으로 나란히 둔다 */
+  .bar #mlenRow button { flex: 1; text-align: center; border-radius: 9999px; }
+  .bar #mlenRow button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 
   /* 모든 쪽 정리 창 */
   .bulkrow {
@@ -328,7 +355,8 @@
   .stage {
     flex: 1;
     overflow: auto;
-    padding: 32px;
+    /* 옆은 좁게 — 화살표가 쪽 위에 겹치므로 비켜 줄 여백이 필요 없다 */
+    padding: 32px 16px;
     display: flex;
     justify-content: center;
     /*
@@ -1065,7 +1093,8 @@
   .bdel {
     position: absolute;
     z-index: 6;
-    transform: translateX(-100%);
+    --place: translateX(-100%);
+    transform: var(--place);
     font-size: 11px;
     /* .pagewrap이 line-height:0이라 여기서 글줄을 다시 세워야 납작해지지 않는다 */
     line-height: 1.35;
@@ -1115,7 +1144,8 @@
   .pageflip {
     position: absolute;
     top: 50%;
-    transform: translateY(-50%);
+    --place: translateY(-50%);
+    transform: var(--place);
     z-index: 5;
     width: 44px;
     height: 44px;
@@ -1983,8 +2013,14 @@
     var cs = getComputedStyle(st);
     var padX = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
     var padY = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
-    var flips = (46 + 20) * 2;      // 양옆 넘김 버튼이 차지하는 폭
-    var w = st.clientWidth - padX - flips;
+    /*
+     * 넘김 화살표 몫을 빼지 않는다.
+     *
+     * 예전에는 화살표가 flex 자식이라 자리를 먹었고, 그래서 여기서도 132px을
+     * 미리 덜어 냈다. 이제 화살표는 쪽 위에 떠 있다 — 쪽이 피해 줄 이유가 없다.
+     * 이걸 안 지우면 화살표를 띄워 놓고도 쪽은 그대로 작다.
+     */
+    var w = st.clientWidth - padX;
     var h = st.clientHeight - padY;
     if (!(w > 0 && h > 0)) return state.scale;
     // 두 쪽 보기면 나란히 놓은 폭(+틈)이 들어가야 한다
@@ -2918,6 +2954,21 @@
     });
   }
 
+  /*
+   * 팝업 자리를 단추 밑에 잡는다. 창 기준(fixed)이라 스스로는 못 찾는다.
+   * 오른쪽 끝을 맞추되 창 밖으로 나가지 않게 민다.
+   */
+  function placeAuto() {
+    var pop = $("autoPop"), btn = $("autoBtn");
+    var r = btn.getBoundingClientRect();
+    var bar = document.querySelector(".bar").getBoundingClientRect();
+    var w = pop.offsetWidth || 236;
+    var left = Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8));
+    pop.style.left = left + "px";
+    // 단추가 아니라 위 줄 아래로 내린다 — 단추는 줄 안에서 여백만큼 위에 있다
+    pop.style.top = (Math.max(r.bottom, bar.bottom) + 6) + "px";
+  }
+
   function closeAuto() { $("autoPop").classList.add("gone"); }
 
   (function buildAuto() {
@@ -2948,7 +2999,10 @@
 
     $("autoBtn").onclick = function (e) {
       e.stopPropagation();
-      $("autoPop").classList.toggle("gone");
+      var pop = $("autoPop");
+      var opening = pop.classList.contains("gone");
+      pop.classList.toggle("gone");
+      if (opening) placeAuto();
     };
     $("autoPop").addEventListener("click", function (e) { e.stopPropagation(); });
     document.addEventListener("click", closeAuto);
