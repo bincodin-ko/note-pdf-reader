@@ -713,8 +713,8 @@
   }
   .fupa { margin-top: 3px; }
 
-  .more { margin-top: 9px; }
-  .more button { font-size: 13px; padding: 5px 11px; }
+  .more { margin-top: 9px; display: flex; gap: 6px; flex-wrap: wrap; }
+  .more button { font-size: 13px; padding: 5px 11px; white-space: nowrap; }
 
   /*
    * Claude 상태 칩 — 늘 보인다.
@@ -1626,7 +1626,7 @@
     var o = {};
     Object.keys(card).forEach(function (k) {
       if (k === "editing" || k === "editingMemo") return;
-      if (k === "draft" || k === "asking") return;     // 치던 글·묻는 중 표시는 남길 것이 아니다
+      if (k === "draft" || k === "asking" || k === "drawing") return;   // 치던 글·도는 중 표시는 남길 것이 아니다
       o[k] = card[k];
     });
     return o;
@@ -3408,6 +3408,199 @@
     saveCard(card);
   }
 
+  /* ---------- 그림에 표시하기 ---------- */
+
+  /*
+   * 모델은 그림을 못 그린다. 좌표를 받아서 우리가 그린다.
+   *
+   * 그냥 "여기를 가리켜"라고 하면 자리를 크게 어긋나게 짚는다. 보낼 때
+   * 흐린 좌표 격자를 얹어 주면 눈금을 읽고 답하므로 훨씬 잘 맞는다.
+   * 왼쪽 위가 (0,0), 오른쪽 아래가 (100,100)이다.
+   */
+  function gridOn(cv) {
+    var out = document.createElement("canvas");
+    out.width = cv.width; out.height = cv.height;
+    var g = out.getContext("2d");
+    g.drawImage(cv, 0, 0);
+
+    var k = Math.max(1, out.width / 900);
+    g.save();
+    g.strokeStyle = "rgba(0,120,255,0.22)";
+    g.lineWidth = Math.max(1, k);
+    g.font = Math.round(11 * k) + "px sans-serif";
+    g.textBaseline = "top";
+    for (var i = 10; i < 100; i += 10) {
+      var x = out.width * i / 100, y = out.height * i / 100;
+      g.beginPath(); g.moveTo(x, 0); g.lineTo(x, out.height); g.stroke();
+      g.beginPath(); g.moveTo(0, y); g.lineTo(out.width, y); g.stroke();
+      // 눈금 숫자는 흰 바탕을 깔아 그림 위에서도 읽히게 한다
+      g.fillStyle = "rgba(255,255,255,0.85)";
+      g.fillRect(x + 1, 1, 20 * k, 13 * k);
+      g.fillRect(1, y + 1, 20 * k, 13 * k);
+      g.fillStyle = "rgba(0,90,200,0.9)";
+      g.fillText(String(i), x + 2 * k, 2 * k);
+      g.fillText(String(i), 2 * k, y + 2 * k);
+    }
+    g.restore();
+    return out;
+  }
+
+  var MARK_COLORS = { red: "#d92b2b", blue: "#1f6feb", green: "#12854a", orange: "#c2410c" };
+  function markColor(c, i) {
+    return MARK_COLORS[c] || [MARK_COLORS.red, MARK_COLORS.blue, MARK_COLORS.green, MARK_COLORS.orange][i % 4];
+  }
+
+  /*
+   * 받아 온 표시를 그림 위에 그린다.
+   *
+   * 손으로 그린 것보다 깔끔해야 할 이유가 있다 — 사람이 그린 화살표는 본인이
+   * 그려서 기억하지만, 남이(여기서는 앱이) 그려 준 것은 알아볼 수 있어야만
+   * 쓸모가 있다. 그래서 글자에는 흰 테를 두르고, 이름표는 반투명 흰 칩에 얹어
+   * 어떤 그림 위에서도 읽히게 한다.
+   */
+  function drawDiagram(cv, draw) {
+    if (!draw || !draw.marks || !draw.marks.length) return cv;
+    var g = cv.getContext("2d");
+    var W = cv.width, H = cv.height;
+    var k = Math.max(1, W / 900);
+    var px = function (v) { return Math.max(0, Math.min(100, Number(v) || 0)) / 100; };
+
+    g.save();
+    g.lineCap = "round";
+    g.lineJoin = "round";
+
+    draw.marks.slice(0, 10).forEach(function (m, i) {
+      var col = markColor(m.color, i);
+      g.strokeStyle = col;
+      g.fillStyle = col;
+      g.lineWidth = 2.6 * k;
+
+      var lx = 0, ly = 0;                    // 이름표를 놓을 자리
+
+      if (m.type === "arrow" && m.from && m.to) {
+        var x1 = px(m.from[0]) * W, y1 = px(m.from[1]) * H;
+        var x2 = px(m.to[0]) * W, y2 = px(m.to[1]) * H;
+        // 살짝 휘어야 여러 개가 겹쳐도 서로 구분된다
+        var mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+        var dx = x2 - x1, dy = y2 - y1;
+        var len = Math.sqrt(dx * dx + dy * dy) || 1;
+        var cx = mx - dy / len * len * 0.12, cy = my + dx / len * len * 0.12;
+        g.beginPath();
+        g.moveTo(x1, y1);
+        g.quadraticCurveTo(cx, cy, x2, y2);
+        g.stroke();
+        // 화살촉은 끝에서 제어점 쪽을 보게 돌린다
+        var ang = Math.atan2(y2 - cy, x2 - cx), hd = 11 * k;
+        g.beginPath();
+        g.moveTo(x2, y2);
+        g.lineTo(x2 - hd * Math.cos(ang - 0.4), y2 - hd * Math.sin(ang - 0.4));
+        g.lineTo(x2 - hd * Math.cos(ang + 0.4), y2 - hd * Math.sin(ang + 0.4));
+        g.closePath();
+        g.fill();
+        lx = x1; ly = y1;
+      } else if (m.type === "circle" && m.at) {
+        var ax = px(m.at[0]) * W, ay = px(m.at[1]) * H;
+        var rx = Math.max(10 * k, px(m.rx || m.r || 8) * W), ry = Math.max(10 * k, px(m.ry || m.r || 8) * H);
+        g.beginPath();
+        g.ellipse(ax, ay, rx, ry, 0, 0, Math.PI * 2);
+        g.stroke();
+        lx = ax; ly = ay - ry - 6 * k;
+      } else if (m.type === "box" && m.rect) {
+        var bx = px(m.rect[0]) * W, by = px(m.rect[1]) * H;
+        var bw = px(m.rect[2]) * W, bh = px(m.rect[3]) * H;
+        g.strokeRect(bx, by, bw, bh);
+        lx = bx; ly = by - 6 * k;
+      } else if (m.type === "label" && m.at) {
+        lx = px(m.at[0]) * W; ly = px(m.at[1]) * H;
+      } else {
+        return;
+      }
+
+      if (!m.label) return;
+      var fs = 15 * k;
+      g.font = "600 " + Math.round(fs) + "px sans-serif";
+      var tw = g.measureText(m.label).width;
+      var pad = 6 * k, bh2 = fs + pad * 1.6;
+      // 칸 밖으로 나가지 않게 민다
+      var bx2 = Math.max(2, Math.min(lx - tw / 2 - pad, W - tw - pad * 2 - 2));
+      var by2 = Math.max(2, Math.min(ly - bh2 - 4 * k, H - bh2 - 2));
+
+      g.fillStyle = "rgba(255,255,255,0.92)";
+      g.strokeStyle = col;
+      g.lineWidth = 1.6 * k;
+      if (g.roundRect) {
+        g.beginPath(); g.roundRect(bx2, by2, tw + pad * 2, bh2, 6 * k); g.fill(); g.stroke();
+      } else {
+        g.fillRect(bx2, by2, tw + pad * 2, bh2);
+        g.strokeRect(bx2, by2, tw + pad * 2, bh2);
+      }
+      g.fillStyle = col;
+      g.textBaseline = "middle";
+      g.fillText(m.label, bx2 + pad, by2 + bh2 / 2);
+    });
+
+    g.restore();
+    return cv;
+  }
+
+  /*
+   * 그림에 표시해 달라고 묻는다.
+   *
+   * 오려낼 때 쓴 그림을 다시 원본에서 크게 떠 온다 — 카드에 든 썸네일로는
+   * 모델이 잔글씨를 못 읽는다. 격자를 얹어 보내고 좌표로 답을 받는다.
+   */
+  async function askDiagram(card) {
+    if (card.drawing) return;
+    card.drawing = true;
+    renderCards();
+    setStatus("그림에 표시할 자리를 찾는 중…");
+
+    try {
+      var base = null;
+      if (state.pdf && card.rect && card.rect.w > 0) {
+        base = await cropFromPdf(card.page, card.rect, 1400);
+      }
+      if (!base) throw new Error("원본 그림을 다시 그릴 수 없습니다");
+
+      var shot = gridOn(base);
+      var raw = await callClaude([{ role: "user", content: [
+        { type: "image", source: { type: "base64", media_type: "image/jpeg",
+                                   data: shot.toDataURL("image/jpeg", 0.9).split(",")[1] } },
+        { type: "text", text:
+          "강의자료에서 오려낸 그림입니다. 위에 흐린 좌표 격자와 눈금 숫자가 얹혀 있습니다.\n" +
+          "왼쪽 위가 (0,0), 오른쪽 아래가 (100,100)입니다.\n\n" +
+          (card.summary ? "이 부분의 정리:\n" + card.summary + "\n\n" : "") +
+          "학생이 한눈에 알아보도록 이 그림에 표시를 얹으려 합니다.\n" +
+          "무엇이 어디인지, 무엇이 어디로 가는지를 3~6개만 짚으세요. 많으면 지저분해집니다.\n" +
+          "격자 눈금을 읽어 자리를 정확히 대세요. 이름표는 12자 이내로 짧게.\n\n" +
+          "아래 JSON만 출력하세요. 설명이나 코드블록 표시는 넣지 마세요.\n" +
+          '{"marks":[' +
+          '{"type":"arrow","from":[x,y],"to":[x,y],"label":"짧은 이름","color":"red"},' +
+          '{"type":"circle","at":[x,y],"r":8,"label":"짧은 이름","color":"blue"},' +
+          '{"type":"box","rect":[x,y,너비,높이],"label":"짧은 이름","color":"green"}' +
+          "]}\n" +
+          "arrow의 from은 이름표를 놓을 빈 자리, to는 가리킬 곳입니다. " +
+          "색은 red·blue·green·orange 중에서 고르세요." }
+      ] }]);
+
+      var clean = String(raw).replace(/```json|```/g, "").trim();
+      var got = JSON.parse(clean);
+      var marks = (got.marks || []).filter(function (m) { return m && m.type; }).slice(0, 10);
+      if (!marks.length) throw new Error("표시할 것을 찾지 못했습니다");
+
+      card.draw = { marks: marks };
+      // 카드 썸네일도 표시가 얹힌 것으로 바꾼다 — 목록에서 바로 보여야 쓸모가 있다
+      var shown = drawDiagram(shrinkTo(base, 1000), card.draw);
+      card.img = shown.toDataURL("image/jpeg", 0.85);
+      setStatus(marks.length + "곳에 표시했습니다.");
+    } catch (e) {
+      setStatus("그림에 표시하지 못했습니다: " + String(e.message || e), true);
+    }
+    card.drawing = false;
+    renderCards();
+    saveCard(card);
+  }
+
   async function expand(card) {
     card.detail = "…";
     renderCards();
@@ -4489,15 +4682,28 @@
       }
 
       if (!card.pending && !card.failed && !card.qna) {
+        var more = document.createElement("div");
+        more.className = "more";
         if (!card.detail) {
-          var more = document.createElement("div");
-          more.className = "more";
           var mb = document.createElement("button");
           mb.textContent = "더 자세히";
           mb.onclick = function () { expand(card); };
           more.appendChild(mb);
-          body.appendChild(more);
         }
+        /*
+         * 그림에 표시하기. 오려낸 자리가 있어야 원본에서 다시 떠 올 수 있으므로
+         * 드래그로 만든 카드에만 나온다.
+         */
+        if (card.rect && card.rect.w > 0) {
+          var db = document.createElement("button");
+          db.textContent = card.drawing ? "표시하는 중…"
+                         : card.draw ? "표시 다시 하기" : "그림에 표시";
+          db.disabled = !!card.drawing;
+          db.title = "그림 위에 화살표와 이름표를 얹어 어디가 무엇인지 보여 줍니다";
+          db.onclick = function () { askDiagram(card); };
+          more.appendChild(db);
+        }
+        if (more.children.length) body.appendChild(more);
 
         if (card.inserted) {
           var done = document.createElement("div");
@@ -5562,7 +5768,10 @@
       if (!c.qna && state.pdf && c.rect && c.rect.w > 0 && c.page >= 1 && c.page <= state.pages) {
         try {
           // 형광펜은 우리가 화면에만 그려 둔 것이라, 여기서 다시 얹어야 보인다
-          imgs[c.id] = paintMarksOn(await cropFromPdf(c.page, c.rect, Math.round(CW * K)), c.page, c.rect);
+          // 형광펜을 얹은 뒤 그림 표시까지 올린다 — 화면에서 본 그대로 나가야 한다
+          imgs[c.id] = drawDiagram(
+            paintMarksOn(await cropFromPdf(c.page, c.rect, Math.round(CW * K)), c.page, c.rect),
+            c.draw);
           return;
         } catch (e) { /* 아래에서 들고 있던 그림으로 간다 */ }
       }
