@@ -36,6 +36,21 @@
     --danger: #c7341c;
     /* 이 그림자 하나만 쓴다. 쪽과 그 위에 붙은 메모에만 */
     --lift: 0 5px 30px 3px rgba(0, 0, 0, 0.14);
+
+    /*
+     * 좁아지면 접지 말고 줄인다.
+     *
+     * 줄바꿈으로 흘려 보냈더니 단추가 아랫줄로 내려가면서 자리가 통째로
+     * 바뀌었다. 늘 있던 자리에 없으면 눈으로 다시 찾아야 한다 — 수업 중에
+     * 쓰는 도구에서 그게 제일 거슬린다. 한 줄에 두고 크기로 맞춘다.
+     * 패널 안쪽은 창이 아니라 --notes-w를 따라가야 한다.
+     */
+    /* 오른쪽 패널이 실제로 차지하는 폭. PDF만 보기에서는 0이 된다 */
+    --pane-w: var(--notes-w);
+    --pad-n: clamp(10px, calc(var(--notes-w) * 0.05), 17px);
+    --gap-n: clamp(4px, calc(var(--notes-w) * 0.018), 6px);
+    --fs-n: clamp(11px, calc(var(--notes-w) * 0.038), 13px);
+    --fs-q: clamp(12px, calc(var(--notes-w) * 0.044), 15px);
     --notes-w: 350px;              /* 정리 패널 폭 — 쪽 번호 표시가 이 값을 따라간다 */
     /* 읽는 글은 17px — 가이드가 정한 "훑지 말고 읽는" 속도다. 사용자가 바꾼다 */
     --note-fs: 17px;
@@ -77,20 +92,29 @@
   .bar {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 14px 24px;
+    gap: clamp(5px, 0.7vw, 12px);
+    padding: clamp(9px, 1vw, 14px) clamp(10px, 1.6vw, 24px);
     background: var(--nav);
     color: #fff;
-    flex-wrap: wrap;
-    row-gap: 10px;
+    /*
+     * 접지 않는다. 창을 줄이면 글자와 여백이 같이 줄고, 그래도 모자라면
+     * 가로로 밀어서 본다 — 아랫줄로 내려가 자리가 바뀌는 것보다 낫다.
+     */
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
   }
+  .bar::-webkit-scrollbar { height: 0; }
+  .bar > * { flex: 0 0 auto; }
+  .bar .spacer { flex: 1 1 0; min-width: 0; }
 
   .mark {
     font-weight: 600;
     letter-spacing: -0.374px;
-    margin-right: 4px;
-    font-size: 17px;
+    margin-right: 2px;
+    font-size: clamp(13px, 1.15vw, 17px);
     color: #fff;
+    white-space: nowrap;
   }
   .mark span { color: var(--marker); }
   /* 어느 빌드를 보고 있는지 한눈에 — 설치파일 이름만으로는 구분이 안 된다 */
@@ -128,7 +152,10 @@
     background: var(--nav-btn);
     border-color: var(--nav-btn);
     color: #fff;
-    padding: 9px 15px;            /* 가이드의 button-dark-utility */
+    /* 가이드의 button-dark-utility(9×15)를 위 끝으로 두고 좁아지면 줄어든다 */
+    font-size: clamp(11px, 0.92vw, 14px);
+    padding: clamp(6px, 0.62vw, 9px) clamp(8px, 1.05vw, 15px);
+    white-space: nowrap;
   }
   .bar button:hover:not(:disabled) { border-color: #48484a; color: #fff; }
 
@@ -149,7 +176,21 @@
    * 같은 "한 올"이라도 바탕이 검으면 값이 달라야 같은 무게로 보인다.
    */
   .bar .tool { border-color: #48484a; }
-  .bar .tool button { color: #cccccc; }
+  .bar .tool button { color: #cccccc; font-size: clamp(11px, 0.92vw, 14px); }
+
+  /*
+   * 끝까지 줄여도 모자라면 글자를 접는다. 덜 중요한 것부터 —
+   * 버전, 상태 칩의 글(점만 남겨도 색으로 알 수 있다), "메모 가－"의 "메모".
+   * 단추를 없애지는 않는다. 있던 것이 사라지면 고장 난 줄 안다.
+   */
+  @media (max-width: 1200px) {
+    .ver { display: none; }
+    .chip #chipText { display: none; }
+    .chip { padding: 8px 10px; }
+  }
+  @media (max-width: 1080px) {
+    #mfsDown .lbl, #mfsUp .lbl { display: none; }
+  }
   .bar .tool button + button { border-left: 1px solid #48484a; }
   .bar .pageno { color: #cccccc; }
   .bar .pageno input {
@@ -162,7 +203,7 @@
   .bar .toggle { color: #cccccc; }
   /* 숨길 것은 확실히 숨는다 — .gone을 요소마다 따로 쓰다 보니 빠진 데가 생겼다 */
   .engine.gone { display: none; }
-  .bar .autobtn { color: #cccccc; }
+  .bar .autobtn { color: #cccccc; font-size: clamp(11px, 0.85vw, 12.5px); }
   .bar .autobtn b { color: var(--accent-dark); }
   .bar .autobtn.on { border-color: var(--accent-dark); color: #fff; }
   .bar #spread.on, .bar #focus.on, .bar .engine.on { border-color: var(--accent-dark); color: var(--accent-dark); }
@@ -280,6 +321,8 @@
     flex: 1;
     display: flex;
     min-height: 0;
+    /* 넘김 화살표가 이 칸을 기준으로 뜬다. 스크롤하는 .stage가 아니라 여기다 */
+    position: relative;
   }
 
   .stage {
@@ -433,6 +476,8 @@
   #root.focus .notes,
   #root.focus .status { display: none; }
   #root.focus .main { height: 100vh; }
+  /* PDF만 보기에서는 오른쪽 패널이 없다. 그 폭을 기준 삼는 것들이 같이 따라온다 */
+  #root.focus { --pane-w: 0px; }
   .exitfocus {
     position: fixed;
     right: 14px;
@@ -449,20 +494,19 @@
   .exitfocus.gone { display: none; }
 
   .noteshead {
-    padding: 17px;
-    flex-wrap: wrap;
-    row-gap: 8px;
+    padding: var(--pad-n);
+    flex-wrap: nowrap;
     border-bottom: 1px solid var(--rule);
     display: flex;
     align-items: center;
     gap: 8px;
   }
-  .noteshead strong { font-size: 14px; font-weight: 600; white-space: nowrap; }
-  .noteshead .count { color: var(--muted); font-size: 13px; white-space: nowrap; }
+  .noteshead strong { font-size: var(--fs-q); font-weight: 600; white-space: nowrap; }
+  .noteshead .count { color: var(--muted); font-size: var(--fs-n); white-space: nowrap; }
   /* 목록 머리의 "모든 쪽 정리" — 옆 글자 크기 단추에 밀리지 않게 폭을 지킨다 */
   .bulkhead {
-    font-size: 12px;
-    padding: 6px 11px;
+    font-size: var(--fs-n);
+    padding: 6px clamp(7px, calc(var(--notes-w) * 0.031), 11px);
     border-radius: 9999px;
     white-space: nowrap;
     flex: 0 0 auto;
@@ -472,6 +516,7 @@
     display: flex;
     gap: 4px;
   }
+  .noteshead .fs { flex: 0 0 auto; }
   .noteshead .fs button {
     font-size: 12px;
     padding: 3px 8px;
@@ -666,11 +711,11 @@
 
   /* 질문 입력칸 — 내보내기 버튼 위, 카드 목록 바로 아래 */
   .askbar {
-    padding: 12px 14px;
+    padding: var(--gap-n) var(--pad-n);
     border-top: 1px solid var(--rule);
     display: flex;
-    flex-wrap: wrap;            /* 좁으면 짜부라뜨리지 말고 아랫줄로 */
-    gap: 6px;
+    flex-wrap: nowrap;
+    gap: var(--gap-n);
     align-items: center;
   }
   /*
@@ -679,21 +724,18 @@
    * 안내글이 "이 쪽에 ㄷ"처럼 잘렸다. 가이드의 17px는 읽는 글의 값이고,
    * 이 줄은 셋이 자리를 나눠 쓰는 곳이다.
    */
+  /* 줄어드는 몫은 칩·단추가 아니라 이 칸이 진다 — 안내글은 짧게 고쳤다 */
   .askbar input {
-    /*
-     * 줄이는 데도 바닥이 있다. 150px 밑으로는 안내글이 무슨 말인지 알아볼 수
-     * 없으므로, 더 좁아지면 짜부라뜨리지 말고 단추를 아랫줄로 내린다.
-     */
-    flex: 1 1 150px;
-    min-width: 150px;
+    flex: 1 1 60px;
+    min-width: 60px;
     font: inherit;
-    font-size: 15px;
+    font-size: var(--fs-q);
     letter-spacing: -0.3px;
     color: var(--text);
     background: var(--ink-2);
     border: 1px solid var(--rule);
     border-radius: 9999px;
-    padding: 8px 14px;
+    padding: 8px clamp(9px, calc(var(--notes-w) * 0.04), 14px);
   }
   .askbar input:focus { outline: none; border-color: var(--accent-focus); }
   /* 쪽 범위 칸 — "여러 쪽"일 때만 나온다 */
@@ -705,8 +747,13 @@
     padding: 8px 4px;
   }
   .askbar input.qrange.gone { display: none; }
-  .askbar button { font-size: 13px; padding: 8px 14px; flex: 0 0 auto; white-space: nowrap; }
-  .askbar .primary { padding: 8px 16px; }
+  .askbar button {
+    font-size: var(--fs-n);
+    padding: 8px clamp(9px, calc(var(--notes-w) * 0.04), 14px);
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+  .askbar .primary { padding: 8px clamp(10px, calc(var(--notes-w) * 0.046), 16px); }
 
   /* 질문 카드는 오려낸 카드와 구분되게 왼쪽에 띠를 둔다 */
   .card.qna { border-left: 3px solid var(--accent); }
@@ -764,8 +811,8 @@
   .modetag { color: var(--accent); font-size: 12px; }
 
   .scope {
-    font-size: 12px;
-    padding: 7px 11px;
+    font-size: var(--fs-n);
+    padding: 7px clamp(7px, calc(var(--notes-w) * 0.031), 11px);
     border-radius: 9999px;
     color: var(--muted);
     flex: 0 0 auto;
@@ -780,8 +827,10 @@
 
   .foot select {
     font: inherit;
-    font-size: 12px;
-    max-width: 130px;
+    font-size: var(--fs-n);
+    min-width: 0;
+    flex: 0 1 auto;
+    max-width: clamp(84px, calc(var(--notes-w) * 0.37), 130px);
     color: var(--text);
     background: var(--ink);
     border: 1px solid var(--rule);
@@ -791,11 +840,11 @@
   }
 
   .foot {
-    padding: 12px 14px;
+    padding: var(--gap-n) var(--pad-n);
     border-top: 1px solid var(--rule);
     display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
+    flex-wrap: wrap;            /* 굽기 줄만 내려간다 — 아래 .burn이 폭을 다 쓴다 */
+    gap: var(--gap-n);
   }
   /*
    * nowrap이 핵심이다. flex:1로 나눠 주다 보니 자리가 모자랄 때 "페이지 추출"이
@@ -803,11 +852,12 @@
    */
   .foot button {
     flex: 1 1 auto;
-    font-size: 13px;
-    padding: 8px 10px;
+    min-width: 0;
+    font-size: var(--fs-n);
+    padding: 8px clamp(6px, calc(var(--notes-w) * 0.028), 10px);
     white-space: nowrap;
   }
-  .foot .primary { padding: 8px 14px; }
+  .foot .primary { padding: 8px clamp(8px, calc(var(--notes-w) * 0.04), 14px); }
 
   /* 굽기 선택은 버튼 아래 한 줄을 통째로 쓴다 — 설명이 길어 옆에 붙으면 잘린다 */
   .foot .burn {
@@ -1052,31 +1102,44 @@
   }
   .hldel:hover { border-color: var(--danger); color: var(--danger); }
 
+  /*
+   * 넘김 화살표는 쪽 위에 겹쳐 띄운다.
+   *
+   * 전에는 .stage의 flex 자식이라 좌우로 132px을 차지했고, 그만큼 쪽이
+   * 작아졌다. 자료를 보려고 만든 화면에서 자료가 줄어드는 건 앞뒤가 바뀐 것이다.
+   * sticky는 자리를 비우지 않으므로 absolute로 띄운다. .stage가 아니라 .main을
+   * 기준으로 잡아야 세로 한가운데에 온다 — .stage는 스크롤하는 칸이라
+   * 내용이 길면 화살표가 같이 밀려 내려간다. 그래서 42vh 같은 어림수로
+   * 맞춰 두었던 것이고, 그게 "살짝 아래"의 정체다.
+   */
   .pageflip {
-    position: sticky;
-    top: 42vh;
-    align-self: flex-start;
-    flex: 0 0 auto;
-    width: 46px;
-    height: 46px;
-    margin: 0 10px;
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 5;
+    width: 44px;
+    height: 44px;
     padding: 0;
     border-radius: 50%;
-    border: 1px solid var(--rule);
-    background: rgba(34, 50, 63, 0.78);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    background: rgba(245, 245, 247, 0.72);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
     color: var(--text);
     font-size: 19px;
     line-height: 1;
     cursor: pointer;
-    /* 수업 중에 시선을 뺏지 않도록 평소엔 흐리게 두고, 가져가면 또렷해진다 */
-    opacity: 0.32;
+    /* 수업 중에 시선을 뺏지 않도록 평소엔 흐리게, 가져가면 또렷해진다 */
+    opacity: 0.28;
     transition: opacity 0.15s;
   }
+  #flipPrev { left: 12px; }
+  #flipNext { right: calc(var(--pane-w) + 12px); }
   .pageflip:hover { opacity: 1; }
 
   .pagebadge {
     position: fixed;
-    right: calc(var(--notes-w) + 16px);
+    right: calc(var(--pane-w) + 16px);
     bottom: 42px;                        /* 아래 상태줄을 비켜선다 */
     z-index: 6;
     padding: 6px 14px;
@@ -1125,8 +1188,8 @@
   </span>
   <span class="pens" id="pens"></span>
   <span class="tool" title="메모 글자 크기 (Ctrl+&lt; / Ctrl+&gt;). 메모를 눌러 고치는 중이면 그 메모만, 아니면 기본 크기가 바뀝니다">
-    <button id="mfsDown" disabled>메모 가－</button>
-    <button id="mfsUp" disabled>메모 가＋</button>
+    <button id="mfsDown" disabled><span class="lbl">메모 </span>가－</button>
+    <button id="mfsUp" disabled><span class="lbl">메모 </span>가＋</button>
   </span>
   <button id="spread" disabled title="한 쪽씩 / 두 쪽씩 보기">한 쪽</button>
   <button id="focus" disabled title="PDF만 크게 봅니다 (Esc로 빠져나옴)">PDF만</button>
