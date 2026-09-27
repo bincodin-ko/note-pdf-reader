@@ -1138,6 +1138,14 @@
         <input id="autoFree" type="text" maxlength="120" placeholder="직접 쓴 요청으로" />
         <button id="autoFreeGo">쓰기</button>
       </div>
+      <!--
+        메모를 얼마나 풀어 쓸지. "무엇을 시킬지"를 고르는 자리 옆이 맞다 —
+        둘 다 오려낸 뒤에 무엇이 나올지를 정하는 것이다.
+      -->
+      <div class="apbulk">
+        <div class="aphead">메모 길이</div>
+        <div class="pickrow" id="mlenRow"></div>
+      </div>
       <div class="apbulk">
         <button id="bulkAll" title="쪽마다 한 번씩 물어 정리를 붙입니다">모든 쪽 지금 정리하기</button>
       </div>
@@ -2742,6 +2750,45 @@
     return t.length > 10 ? t.slice(0, 10) + "…" : t;
   }
 
+  /*
+   * 메모를 얼마나 풀어 쓸지.
+   *
+   * "각 줄 28자 이내로 끊어라"가 화근이었다. 글자 수를 좁게 묶어 두면 모델이
+   * 문장을 포기하고 "정상보행: 입각기60%/유각기40%" 같은 명사 나열로 답한다.
+   * 붙이는 순간에는 알아보지만, 일주일 뒤에 그 줄만 보면 무슨 말인지 모른다.
+   * 메모는 본문을 다시 읽지 않으려고 붙이는 것인데 그러면 붙인 뜻이 없다.
+   *
+   * 그래서 줄을 길게 열어 주고, 무엇보다 "읽어서 뜻이 통하는 문장으로"를
+   * 시킨다. 얼마나 자세할지는 사람마다 다르니 고를 수 있게 둔다 —
+   * 자료와 무관한 취향이라 localStorage에 적는다.
+   */
+  var MEMO_LENS = [
+    { id: "short", label: "짧게", lines: "3~4줄", per: 25, cap: 150, max: 4, keep: 110,
+      how: "핵심 낱말 위주로 짧게 적으세요." },
+    { id: "mid", label: "보통", lines: "4~6줄", per: 40, cap: 300, max: 6, keep: 180,
+      how: "각 줄을 완결된 문장으로 쓰세요." },
+    { id: "long", label: "자세히", lines: "6~10줄", per: 45, cap: 520, max: 10, keep: 300,
+      how: "각 줄을 완결된 문장으로 쓰고, 왜 그런지나 어떤 조건에서 그런지까지 적으세요." }
+  ];
+  var memoLen = MEMO_LENS[1];
+  (function () {
+    try {
+      var v = localStorage.getItem("capnote:memolen");
+      MEMO_LENS.forEach(function (m) { if (m.id === v) memoLen = m; });
+    } catch (e) {}
+  })();
+
+  /*
+   * 세 군데(오려내기·쪽 전체·붙일 때 줄이기)가 같은 말을 따로 적고 있었다.
+   * 한 군데서 만들어 쓴다 — 따로 적으면 한쪽만 고치고 만다.
+   */
+  function memoSpec() {
+    return "PDF에 붙일 " + memoLen.lines + ". 한 줄 " + memoLen.per +
+           "자 안팎으로 끊고 줄바꿈 \\n 으로 구분. " + memoLen.how +
+           " 명사만 늘어놓거나 새 줄임말을 만들지 말고, 나중에 이 줄만 봐도 " +
+           "무슨 내용인지 알 수 있게 쓰세요. 숫자·조건·정의는 빠뜨리지 마세요.";
+  }
+
   function renderAuto() {
     $("autoWhat").textContent = autoLabel();
     $("autoBtn").classList.toggle("on", !!state.auto);
@@ -2756,6 +2803,34 @@
     // 숫자 칸은 지금 값을 따라간다
     Array.prototype.forEach.call($("apList").querySelectorAll(".nsent input"),
       function (i) { i.value = String(state.nSent); });
+  }
+
+  /*
+   * 메모 길이 고르는 줄. 바꾸면 다음에 정리하는 것부터 따라간다 —
+   * 이미 붙여 둔 메모를 건드리지는 않는다. 고쳐 놓은 걸 덮으면 안 된다.
+   */
+  (function buildMemoLen() {
+    var row = $("mlenRow");
+    MEMO_LENS.forEach(function (m) {
+      var b = document.createElement("button");
+      b.textContent = m.label;
+      b.dataset.ml = m.id;
+      b.title = "메모를 " + m.lines + "로 " + (m.id === "short" ? "짧게" : m.id === "mid" ? "문장으로" : "자세히") + " 적습니다";
+      b.onclick = function () {
+        memoLen = m;
+        try { localStorage.setItem("capnote:memolen", m.id); } catch (e) {}
+        syncMemoLen();
+        setStatus("앞으로 메모를 " + m.label + "(" + m.lines + ") 적습니다.");
+      };
+      row.appendChild(b);
+    });
+    syncMemoLen();
+  })();
+
+  function syncMemoLen() {
+    Array.prototype.forEach.call($("mlenRow").children, function (b) {
+      b.classList.toggle("primary", b.dataset.ml === memoLen.id);
+    });
   }
 
   function closeAuto() { $("autoPop").classList.add("gone"); }
@@ -2837,9 +2912,7 @@
           "\n" + modeHow(mode) + "\n" +
           "\n한국어로 답하고, 아래 JSON만 출력하세요. 설명이나 코드블록 표시는 넣지 마세요.\n" +
           "글 안에도 마크다운 표시(**, ##)는 쓰지 마세요. 목록은 \"- \"로만 적으세요.\n" +
-          '{"memo": "PDF에 붙일 핵심 3~5줄. 각 줄 28자 이내로 끊고 줄바꿈 \\n 으로 구분. ' +
-          '나중에 이 줄만 봐도 무슨 내용인지 알 수 있게 구체적으로.", ' +
-          '"summary": "위에서 시킨 대로 쓴 본문"}' }
+          '{"memo": "' + memoSpec() + '", "summary": "위에서 시킨 대로 쓴 본문"}' }
     ];
 
     var raw = await callClaude([{ role: "user", content: content }]);
@@ -2854,7 +2927,7 @@
       mode: modeLabel(mode),
       bulk: true,
       rect: { x: 0, y: 0, w: 0, h: 0 },   // 오려낸 자리가 없다 — 테두리도 안 만든다
-      memo: (parsed.memo || "").slice(0, 300),
+      memo: (parsed.memo || "").slice(0, 600),
       summary: parsed.summary || clean,
       detail: "",
       inserted: true
@@ -3071,9 +3144,7 @@
       "\n" + how + "\n" +
       "\n한국어로 답하고, 아래 JSON만 출력하세요. 설명이나 코드블록 표시는 넣지 마세요.\n" +
       "글 안에도 마크다운 표시(**, ##)는 쓰지 마세요. 목록은 \"- \"로만 적으세요.\n" +
-      '{"memo": "PDF에 붙일 핵심 3~5줄. 각 줄 28자 이내로 끊고 줄바꿈 \\n 으로 구분. ' +
-      '나중에 이 줄만 봐도 무슨 내용인지 알 수 있게 구체적으로.", ' +
-      '"summary": "위에서 시킨 대로 쓴 본문"}';
+      '{"memo": "' + memoSpec() + '", "summary": "위에서 시킨 대로 쓴 본문"}';
 
     var content = [];
     if (crop.b64) {
@@ -3087,7 +3158,7 @@
       var parsed;
       try { parsed = JSON.parse(clean); }
       catch (e) { parsed = { memo: clean.slice(0, 40), summary: clean }; }
-      card.memo = (parsed.memo || "").slice(0, 300);   // 3~5줄이 들어가야 한다
+      card.memo = (parsed.memo || "").slice(0, 600);   // 시킨 줄 수가 다 들어가야 한다
       card.summary = parsed.summary || clean;
       card.pending = false;
       setStatus("");
@@ -3237,7 +3308,7 @@
   }
 
   function memoText(t) {
-    return mdPlain(t).replace(/\n{2,}/g, "\n").trim().slice(0, 300);
+    return mdPlain(t).replace(/\n{2,}/g, "\n").trim().slice(0, 600);
   }
 
   /*
@@ -3248,12 +3319,10 @@
    * 덮었다. 받을 때가 아니라 붙일 때 줄인다 — 안 붙일 답까지 값을 치를 이유가
    * 없다. 이미 메모만 한 길이면 부르지 않는다.
    */
-  var MEMO_KEEP = 110;             // 이 아래면 이미 메모 길이다. 부르지 않는다
-  var MEMO_CAP = 170;              // 다섯 줄 × 스물여덟 자 언저리
 
   async function condense(text) {
     var t = mdPlain(text || "").replace(/\n{2,}/g, "\n").trim();
-    if (t.length <= MEMO_KEEP) return t.slice(0, 300);
+    if (t.length <= memoLen.keep) return t.slice(0, 600);
     try {
       /*
        * 오려낸 것과 같은 JSON 꼴로 받는다. 그냥 "줄여 달라"고 하면
@@ -3262,8 +3331,7 @@
       var raw = await callClaude([{ role: "user", content: [{ type: "text", text:
         "다음 글을 PDF 여백에 붙일 메모로 줄이세요.\n\n" + t.slice(0, 4000) +
         "\n\n한국어로 답하고, 아래 JSON만 출력하세요. 설명이나 코드블록 표시는 넣지 마세요.\n" +
-        '{"memo": "다섯 줄 이내, 각 줄 28자 이내. 줄바꿈 \\n 으로 구분. ' +
-        '나중에 이 줄만 봐도 무슨 내용인지 알 수 있게 구체적으로."}' }] }]);
+        '{"memo": "' + memoSpec() + '"}' }] }]);
       var clean = raw.replace(/```json|```/g, "").trim(), got = "";
       try { got = JSON.parse(clean).memo || ""; } catch (e) { got = clean; }
 
@@ -3271,9 +3339,9 @@
        * 줄 수도 길이도 코드로 막는다. 시켜 놓고 믿기만 하면 여섯 줄이 온다.
        * 자르는 건 줄 단위로 — 글자 수로 끊으면 말이 중간에서 잘린다.
        */
-      var lines = memoText(got).split("\n").slice(0, 5), out = [], used = 0;
+      var lines = memoText(got).split("\n").slice(0, memoLen.max), out = [], used = 0;
       for (var i = 0; i < lines.length; i++) {
-        if (out.length && used + lines[i].length > MEMO_CAP) break;
+        if (out.length && used + lines[i].length > memoLen.cap) break;
         out.push(lines[i]); used += lines[i].length;
       }
       return out.join("\n") || memoText(t);
@@ -3288,7 +3356,7 @@
    */
   async function attachAnswer(card, quiet) {
     var parts = answerParts(card);
-    if (parts.some(function (p) { return p.text.length > MEMO_KEEP; })) {
+    if (parts.some(function (p) { return p.text.length > memoLen.keep; })) {
       setStatus("메모로 줄이는 중…");
     }
     card.page = parts[0].page;
