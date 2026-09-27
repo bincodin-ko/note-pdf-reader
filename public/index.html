@@ -318,9 +318,14 @@
   .apfree button { font-size: 12px; padding: 6px 9px; flex: 0 0 auto; }
   .apbulk { margin-top: 8px; border-top: 1px solid var(--rule); padding-top: 8px; }
   .bar .apbulk button { width: 100%; padding: 7px 9px; }
-  /* 메모 길이는 셋 중 하나를 고르는 것이라 알약으로 나란히 둔다 */
-  .bar #mlenRow button { flex: 1; text-align: center; border-radius: 9999px; }
-  .bar #mlenRow button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  /*
+   * 메모 길이는 셋 중 하나를 고르는 것이라 알약으로 나란히 둔다.
+   * .pickrow를 같이 쓰지 않는다 — 생김새가 같대서 이름을 빌리면
+   * 나중에 한쪽을 고칠 때 다른 쪽이 딸려 온다.
+   */
+  .mlenrow { display: flex; gap: 5px; margin-top: 4px; }
+  .bar .mlenrow button { flex: 1; text-align: center; border-radius: 9999px; }
+  .bar .mlenrow button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 
   /* 모든 쪽 정리 창 */
   .bulkrow {
@@ -684,6 +689,29 @@
     font-size: 12px;
     color: var(--marker);
   }
+
+  /* 이 대목에 대고 더 묻는 칸 */
+  .fup { display: flex; gap: 6px; margin-top: 10px; }
+  .fup input {
+    flex: 1 1 60px;
+    min-width: 60px;
+    font: inherit;
+    font-size: calc(var(--note-fs) - 2px);
+    color: var(--text);
+    background: var(--ink-2);
+    border: 1px solid var(--rule);
+    border-radius: 9999px;
+    padding: 7px 13px;
+  }
+  .fup input:focus { outline: none; border-color: var(--accent-focus); }
+  .fup button { flex: 0 0 auto; font-size: 12px; padding: 7px 13px; white-space: nowrap; }
+  .fupq {
+    margin-top: 11px;
+    font-size: calc(var(--note-fs) - 2px);
+    font-weight: 600;
+    color: var(--accent);
+  }
+  .fupa { margin-top: 3px; }
 
   .more { margin-top: 9px; }
   .more button { font-size: 13px; padding: 5px 11px; }
@@ -1090,6 +1118,20 @@
    * .boxsel이 z-index를 가지고 있어 그 안에 넣으면 메모 밑에 깔려 못 누른다.
    * 자리는 테두리 오른쪽 위 모서리에 맞춘다(translateX로 오른쪽 끝 정렬).
    */
+  /*
+   * 쪽 위에 얹히는 단추는 어두워야 한다.
+   *
+   * 밝은 차림으로 바꾸면서 이것도 흰 바탕에 흰 단추가 됐다. PDF 쪽도 흰
+   * 종이라 테두리 한 올만 남아 거의 안 보였다 — 누르지 못하니 "작동하지
+   * 않는다"로 보인다. 가이드의 button-dark-utility 차림으로 되돌린다.
+   */
+  .bdel, .hldel {
+    background: var(--nav-btn);
+    border-color: var(--nav-btn);
+    color: #fff;
+  }
+  .bdel:hover:not(:disabled) { background: #000; border-color: #000; color: #fff; }
+
   .bdel {
     position: absolute;
     z-index: 6;
@@ -1125,11 +1167,8 @@
     line-height: 1;
     font-size: 13px;
     border-radius: 50%;
-    background: var(--ink);
-    color: var(--text);
-    border: 1px solid var(--rule);
   }
-  .hldel:hover { border-color: var(--danger); color: var(--danger); }
+  .hldel:hover:not(:disabled) { background: var(--danger); border-color: var(--danger); color: #fff; }
 
   /*
    * 넘김 화살표는 쪽 위에 겹쳐 띄운다.
@@ -1252,7 +1291,7 @@
       -->
       <div class="apbulk">
         <div class="aphead">메모 길이</div>
-        <div class="pickrow" id="mlenRow"></div>
+        <div class="mlenrow" id="mlenRow"></div>
       </div>
       <div class="apbulk">
         <button id="bulkAll" title="쪽마다 한 번씩 물어 정리를 붙입니다">모든 쪽 지금 정리하기</button>
@@ -1587,6 +1626,7 @@
     var o = {};
     Object.keys(card).forEach(function (k) {
       if (k === "editing" || k === "editingMemo") return;
+      if (k === "draft" || k === "asking") return;     // 치던 글·묻는 중 표시는 남길 것이 아니다
       o[k] = card[k];
     });
     return o;
@@ -3323,6 +3363,51 @@
     }
   }
 
+  /*
+   * 카드 하나에 대고 묻는다.
+   *
+   * 오려낸 그림이 아직 있으면 같이 보낸다 — 정리 글만 넘기면 원문에 있던
+   * 수치나 그림을 다시 볼 수 없어 답이 뭉툭해진다. 앞서 주고받은 것도
+   * 세 개까지 붙여 이어 묻는 말이 통하게 한다.
+   */
+  async function askOnCard(card, q) {
+    card.asking = true;
+    card.draft = "";
+    renderCards();
+
+    var prior = (card.qa || []).slice(-3).map(function (t) {
+      return "앞서 물음: " + t.q + "\n앞서 답: " + String(t.a).replace(/\s+/g, " ").slice(0, 400);
+    }).join("\n");
+
+    var ask =
+      "다음은 대학 강의자료 " + card.page + "쪽에서 오려낸 부분을 정리한 것입니다.\n\n" +
+      (card.memo ? "메모: " + card.memo + "\n" : "") +
+      "정리: " + (card.summary || "") + "\n" +
+      (card.detail ? "더 자세히: " + card.detail + "\n" : "") +
+      (prior ? "\n" + prior + "\n" : "") +
+      "\n학생이 이 대목에 대해 더 묻습니다: " + q + "\n\n" +
+      "한국어로 이 대목에 붙여서 구체적으로 답하세요. 8줄 이내.\n" +
+      "마크다운 표시(**, ##)는 쓰지 마세요. 목록은 \"- \"로만 적으세요.";
+
+    var content = [];
+    var crop = pendingCrops[card.id];
+    if (crop && crop.b64) {
+      content.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: crop.b64 } });
+    }
+    content.push({ type: "text", text: ask });
+
+    try {
+      var a = await callClaude([{ role: "user", content: content }]);
+      card.qa = (card.qa || []).concat([{ q: q, a: a }]);
+      setStatus("");
+    } catch (e) {
+      setStatus("답을 받아오지 못했습니다: " + String(e.message || e), true);
+    }
+    card.asking = false;
+    renderCards();
+    saveCard(card);
+  }
+
   async function expand(card) {
     card.detail = "…";
     renderCards();
@@ -4300,6 +4385,54 @@
         det.style.color = "var(--muted)";
         renderText(det, card.detail);
         body.appendChild(det);
+      }
+
+      /*
+       * 이 대목에 대고 더 묻기.
+       *
+       * "더 자세히"는 한 번 누르면 끝이라 되물을 수가 없었다. 공부하다 막히는
+       * 데는 사람마다 다르고 무엇을 더 물을지는 본인만 안다. 그래서 빈칸을 둔다.
+       * 주고받은 것은 카드에 쌓이고 정리 PDF에도 같이 나간다 — 화면에서만
+       * 보이고 종이에 안 나오면 그때 가서 또 물어야 한다.
+       */
+      if (!card.pending && !card.failed && card.summary) {
+        (card.qa || []).forEach(function (t) {
+          var qd = document.createElement("div");
+          qd.className = "fupq";
+          qd.textContent = "Q. " + t.q;
+          body.appendChild(qd);
+          var ad = document.createElement("div");
+          ad.className = "cardtext fupa";
+          renderText(ad, t.a);
+          body.appendChild(ad);
+        });
+
+        var fr = document.createElement("div");
+        fr.className = "fup";
+        var fi = document.createElement("input");
+        fi.type = "text";
+        fi.maxLength = 300;
+        fi.placeholder = card.asking ? "묻는 중…" : "이 메모에서 추가로 질문하기";
+        fi.disabled = !!card.asking;
+        // 다른 카드가 끝나며 목록을 다시 그려도 치던 글이 날아가지 않게 챙겨 둔다
+        fi.value = card.draft || "";
+        fi.oninput = function () { card.draft = fi.value; };
+        var fb = document.createElement("button");
+        fb.className = "primary";
+        fb.textContent = "묻기";
+        fb.disabled = !!card.asking;
+        var goFup = function () {
+          var q = fi.value.trim();
+          if (!q || card.asking) return;
+          askOnCard(card, q);
+        };
+        fb.onclick = goFup;
+        fi.onkeydown = function (e) {
+          if (e.key === "Enter") { e.preventDefault(); goFup(); }
+        };
+        fr.appendChild(fi);
+        fr.appendChild(fb);
+        body.appendChild(fr);
       }
 
       // 답에 나온 쪽 번호로 바로 갈 수 있게 한다
@@ -5375,6 +5508,13 @@
             lines.push(c.summary || "");
             if (c.detail) { lines.push(""); lines.push(c.detail); }
           }
+          // 이어서 물어본 것도 같이 나간다 — 화면에서만 보이면 그때 가서 또 물어야 한다
+          (c.qa || []).forEach(function (t) {
+            lines.push("");
+            lines.push("**Q. " + t.q + "**");
+            lines.push("");
+            lines.push(t.a || "");
+          });
           lines.push("");
         });
       });
@@ -5462,6 +5602,18 @@
       });
     }
 
+    /*
+     * 이어서 물어본 것을 종이에도 옮긴다. 물음은 파랑·굵게로 띄워
+     * 정리 본문과 섞이지 않게 한다 — 나중에 훑을 때 눈이 걸려야 한다.
+     */
+    function putQa(c) {
+      (c.qa || []).forEach(function (t) {
+        y += 5;
+        text("Q. " + t.q, 10.5, true, "#0066cc", 15.5);
+        text(mdPlain(t.a || ""), 10.5, false, "#222222", 15.5);
+      });
+    }
+
     newPage();
     text(state.docName || "정리", 17, true, "#111111", 25);
     text(new Date().toLocaleDateString("ko-KR") + " · " + cards.length + "항목",
@@ -5495,6 +5647,7 @@
         text("Q. " + (c.question || ""), 11.5, true, "#7a5c00", 17);
         y += 3;
         text(mdPlain(c.summary), 10.5, false, "#222222", 15.5);
+        putQa(c);
       } else {
         var im = imgs[c.id];
         if (im && im.width) {
@@ -5510,6 +5663,7 @@
         if (c.memo) { text(mdPlain(c.memo), 11, true, "#7a5c00", 16); y += 2; }
         text(mdPlain(c.summary), 10.5, false, "#222222", 15.5);
         if (c.detail) { y += 4; text(mdPlain(c.detail), 10, false, "#555555", 15); }
+        putQa(c);
       }
       y += 6;
     }
