@@ -192,6 +192,8 @@
   @media (max-width: 1200px) {
     .ver { display: none; }
     .chip #chipText { display: none; }
+    /* 좁아져도 모델 이름만은 남긴다 — 칩에서 가장 궁금한 한 가지다 */
+    .chip.on #chipShort { display: inline; }   /* 아래 기본값(숨김)보다 앞에 적혀 있어 한 단계 더 좁게 집는다 */
     .chip { padding: 8px 10px; }
   }
   @media (max-width: 1080px) {
@@ -736,6 +738,7 @@
     white-space: nowrap;
   }
   .chip.on { display: inline-flex; }
+  .chip #chipShort { display: none; }
   .chip .dot {
     width: 7px; height: 7px; border-radius: 50%;
     background: var(--muted); flex: 0 0 auto;
@@ -1243,7 +1246,7 @@
 <div class="bar">
   <div class="mark">오려둔 <span>공책</span></div>
   <span class="ver" id="ver"></span>
-  <button class="chip" id="chip" title="Claude Code 상태"><span class="dot"></span><span id="chipText">확인 중…</span></button>
+  <button class="chip" id="chip" title="Claude Code 상태"><span class="dot"></span><span id="chipText">확인 중…</span><span id="chipShort"></span></button>
   <button class="primary" id="open">PDF 열기</button>
   <input type="file" id="file" accept="application/pdf" hidden />
   <button id="prev" disabled>←</button>
@@ -1428,10 +1431,11 @@
    * "정리를 받아오지 못했습니다"만 뜨면 사용자는 뭘 해야 할지 알 수 없다.
    * 깔려 있는지 먼저 확인해서, 아니면 무엇이 문제인지와 할 일을 같이 보여준다.
    */
-  function setChip(cls, text) {
+  function setChip(cls, text, short) {
     var c = $("chip");
     c.className = "chip on " + cls;
     $("chipText").textContent = text;
+    $("chipShort").textContent = short || "";
   }
 
   function showCliWarn(msg, open) {
@@ -1470,6 +1474,19 @@
       : "정리를 클로드가 합니다. 눌러서 로컬 모델(" + localAI.text + ")로 바꿉니다";
   }
 
+  /*
+   * 모델 이름을 사람이 읽는 말로 바꾼다. "claude-opus-5-5"는 설정 값이지
+   * 이름이 아니다. 모르는 값이면 받은 그대로 보여 준다 — 틀린 이름보다 낫다.
+   */
+  function modelName(id) {
+    var m = /claude-(opus|sonnet|haiku|fable)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/i.exec(String(id || ""));
+    if (!m) return String(id || "");
+    var fam = m[1].charAt(0).toUpperCase() + m[1].slice(1).toLowerCase();
+    return fam + " " + m[2] + (m[3] ? "." + m[3] : "");
+  }
+  var EFFORT_KO = { low: "낮음", medium: "보통", high: "높음", xhigh: "매우 높음", max: "최대" };
+  function effortName(e) { return EFFORT_KO[e] || e || ""; }
+
   function checkCli() {
     setChip("", "확인 중…");
     return fetch("/api/status")
@@ -1477,10 +1494,18 @@
       .then(function (d) {
         localAI = d.local || localAI;
         syncEngine();
-        // 어느 모델이 답하는지 칩에 얹어 둔다 — 가져가면 보인다
-        if (d.model) $("chip").title = "Claude Code 상태 · " + d.model + (d.effort ? " · effort " + d.effort : "");
+        /*
+         * 어느 모델이 답하는지는 칩 글자로 늘 보이게 한다.
+         *
+         * 처음엔 칩에 마우스를 올려야 뜨는 설명에만 적었다. 그러니 앱 안에서
+         * 모델이 "안 보인다". 답의 결이 달라졌을 때 가장 먼저 확인할 것이라
+         * 숨겨 둘 까닭이 없다. 생각 깊이(effort)는 한국어로 붙인다.
+         */
+        var who = d.model ? modelName(d.model) + (d.effort ? " · " + effortName(d.effort) : "") : "";
+        $("chip").title = (d.model ? "답하는 모델: " + d.model + (d.effort ? " · 생각 깊이 " + d.effort + "(" + effortName(d.effort) + ")" : "") + "\n" : "") +
+                          "누르면 Claude Code 로그인 상태를 봅니다";
         if (d.mode !== "cli") {              // API 모드면 Claude Code가 필요 없다
-          setChip("ready", "API 모드");
+          setChip("ready", who ? "API · " + who : "API 모드", d.model ? modelName(d.model) : "");
           $("cliwarn").classList.remove("on");
           return true;
         }
@@ -1500,9 +1525,10 @@
             "아래 버튼을 누르면 로그인 창이 열립니다. 마치고 “다시 확인”을 눌러 주세요.", true);
           return false;
         }
-        setChip("ready", "Claude 준비됨");
+        setChip("ready", who || "Claude 준비됨", d.model ? modelName(d.model) : "");
         showCliWarn(
           "Claude Code에 로그인돼 있습니다" + (c.version ? " (" + c.version + ")" : "") + ".<br />" +
+          (d.model ? "답하는 모델은 <b>" + d.model + "</b>, 생각 깊이는 <b>" + effortName(d.effort) + "</b>입니다.<br />" : "") +
           "계정을 바꾸려면 아래에서 다시 로그인하세요.", false);
         $("cliwarn").classList.remove("on");
         return true;
