@@ -28,7 +28,18 @@ let VERSION = "0.0.0";
 try {
   VERSION = require("./package.json").version || VERSION;
 } catch (e) { /* 못 읽어도 앱은 돌아야 한다 */ }
-const MODEL = process.env.CLAUDE_MODEL || "claude-sonnet-5";
+/*
+ * 어느 모델로, 얼마나 깊이 생각하게 할지.
+ *
+ * 전에는 구독 경로(claude -p)에 모델을 적지 않아서, 사람마다 Claude Code에
+ * 기본으로 잡아 둔 모델로 갔다. 같은 앱인데 누구는 빠르고 누구는 느린 식으로
+ * 결과가 갈렸다. 여기서 정해 준다. 바꾸려면 CLAUDE_MODEL · CLAUDE_EFFORT.
+ *
+ * effort는 medium이다. 수업 중에 쓰는 도구라 한 번 묻는 데 오래 걸리면
+ * 안 쓰게 된다 — 정리·그림 표시에는 이 정도 깊이면 충분하다.
+ */
+const MODEL = process.env.CLAUDE_MODEL || "claude-opus-5-5";
+const EFFORT = process.env.CLAUDE_EFFORT || "medium";
 const PUBLIC = path.join(__dirname, "public");
 
 /*
@@ -47,7 +58,7 @@ const API_NO_KEY = USE_API && !KEY;
 const USE_CLI = !USE_API || API_NO_KEY;
 const MODE = USE_CLI ? "cli" : "api";
 const MODE_LABEL = USE_CLI
-  ? "Claude Code CLI (구독으로 처리)"
+  ? "Claude Code CLI (구독으로 처리) · " + MODEL + " · effort " + EFFORT
   : "Anthropic API · 모델 " + MODEL;
 
 /*
@@ -212,7 +223,8 @@ function envForClaude() {
  */
 function runClaude(prompt) {
   return new Promise((resolve, reject) => {
-    const args = ["-p", "--output-format", "json", "--allowedTools", "Read", "--max-turns", "4"];
+    const args = ["-p", "--output-format", "json", "--allowedTools", "Read", "--max-turns", "4",
+                  "--model", MODEL, "--effort", EFFORT];
     let child;
     try {
       child = spawn("claude", args, {
@@ -478,7 +490,8 @@ http.createServer((req, res) => {
 
   if (req.url === "/api/status") {
     return Promise.all([claudeStatus(), localState()]).then(function (r) {
-      send(res, 200, JSON.stringify({ mode: MODE, version: VERSION, claude: r[0], local: r[1] }));
+      send(res, 200, JSON.stringify({ mode: MODE, version: VERSION, model: MODEL, effort: EFFORT,
+                                      claude: r[0], local: r[1] }));
     });
   }
 

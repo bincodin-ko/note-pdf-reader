@@ -1463,6 +1463,8 @@
       .then(function (d) {
         localAI = d.local || localAI;
         syncEngine();
+        // 어느 모델이 답하는지 칩에 얹어 둔다 — 가져가면 보인다
+        if (d.model) $("chip").title = "Claude Code 상태 · " + d.model + (d.effort ? " · effort " + d.effort : "");
         if (d.mode !== "cli") {              // API 모드면 Claude Code가 필요 없다
           setChip("ready", "API 모드");
           $("cliwarn").classList.remove("on");
@@ -3429,6 +3431,18 @@
     g.lineWidth = Math.max(1, k);
     g.font = Math.round(11 * k) + "px sans-serif";
     g.textBaseline = "top";
+    /*
+     * 5칸마다 흐린 선, 10칸마다 숫자. 10칸 격자만 주면 한 칸 안에서
+     * 어디쯤인지를 어림하다 크게 빗나갔다.
+     */
+    for (var j = 5; j < 100; j += 10) {
+      var xj = out.width * j / 100, yj = out.height * j / 100;
+      g.save();
+      g.strokeStyle = "rgba(0,120,255,0.11)";
+      g.beginPath(); g.moveTo(xj, 0); g.lineTo(xj, out.height); g.stroke();
+      g.beginPath(); g.moveTo(0, yj); g.lineTo(out.width, yj); g.stroke();
+      g.restore();
+    }
     for (var i = 10; i < 100; i += 10) {
       var x = out.width * i / 100, y = out.height * i / 100;
       g.beginPath(); g.moveTo(x, 0); g.lineTo(x, out.height); g.stroke();
@@ -3468,6 +3482,35 @@
     g.save();
     g.lineCap = "round";
     g.lineJoin = "round";
+
+    /*
+     * 이름표 자리를 겹치지 않게 잡는다.
+     *
+     * 모델은 이름표 자리까지 잘 고르지 못해서, 둘이 한 곳에 겹쳐 "백질"이
+     * "전정중열" 밑에 가려졌다. 이미 놓은 이름표를 기억해 두고, 겹치면
+     * 위·아래·옆으로 차례로 옮겨 본다. 그래도 안 되면 조금씩 내린다.
+     */
+    var placed = [];
+    function hits(r) {
+      for (var q = 0; q < placed.length; q++) {
+        var o = placed[q];
+        if (r.x < o.x + o.w + 4 && r.x + r.w + 4 > o.x && r.y < o.y + o.h + 3 && r.y + r.h + 3 > o.y) return true;
+      }
+      return false;
+    }
+    function spot(ax, ay, w, h) {
+      var cands = [
+        [ax - w / 2, ay - h - 6 * k], [ax - w / 2, ay + 8 * k],
+        [ax + 8 * k, ay - h / 2], [ax - w - 8 * k, ay - h / 2]
+      ];
+      for (var t = 1; t <= 8; t++) cands.push([ax - w / 2, ay + 8 * k + t * (h + 4 * k)]);
+      for (var c = 0; c < cands.length; c++) {
+        var r = { x: Math.max(2, Math.min(cands[c][0], W - w - 2)),
+                  y: Math.max(2, Math.min(cands[c][1], H - h - 2)), w: w, h: h };
+        if (!hits(r)) return r;
+      }
+      return { x: Math.max(2, Math.min(ax - w / 2, W - w - 2)), y: Math.max(2, Math.min(ay - h - 6 * k, H - h - 2)), w: w, h: h };
+    }
 
     draw.marks.slice(0, 10).forEach(function (m, i) {
       var col = markColor(m.color, i);
@@ -3521,9 +3564,19 @@
       g.font = "600 " + Math.round(fs) + "px sans-serif";
       var tw = g.measureText(m.label).width;
       var pad = 6 * k, bh2 = fs + pad * 1.6;
-      // 칸 밖으로 나가지 않게 민다
-      var bx2 = Math.max(2, Math.min(lx - tw / 2 - pad, W - tw - pad * 2 - 2));
-      var by2 = Math.max(2, Math.min(ly - bh2 - 4 * k, H - bh2 - 2));
+      var at = spot(lx, ly, tw + pad * 2, bh2);
+      placed.push(at);
+      var bx2 = at.x, by2 = at.y;
+      // 이름표를 옮겼으면 화살표 꼬리까지 가는 가는 선을 그어 누구 것인지 잇는다
+      if (m.type === "arrow" && (Math.abs(bx2 + at.w / 2 - lx) > 6 * k || Math.abs(by2 + at.h / 2 - ly) > at.h)) {
+        g.save();
+        g.strokeStyle = col; g.globalAlpha = 0.55; g.lineWidth = 1.2 * k;
+        g.setLineDash([4 * k, 3 * k]);
+        g.beginPath(); g.moveTo(lx, ly);
+        g.lineTo(Math.max(bx2, Math.min(lx, bx2 + at.w)), Math.max(by2, Math.min(ly, by2 + at.h)));
+        g.stroke();
+        g.restore();
+      }
 
       g.fillStyle = "rgba(255,255,255,0.92)";
       g.strokeStyle = col;
@@ -3541,6 +3594,17 @@
 
     g.restore();
     return cv;
+  }
+
+  // 모델 답에서 표시 목록만 건진다. 앞뒤 군말이나 코드블록 표시가 붙어도 된다
+  function parseMarks(raw) {
+    var t = String(raw || "").replace(/```json|```/g, "").trim();
+    var i = t.indexOf("{"), j = t.lastIndexOf("}");
+    if (i < 0 || j < i) return [];
+    try {
+      var got = JSON.parse(t.slice(i, j + 1));
+      return (got.marks || []).filter(function (m) { return m && m.type; }).slice(0, 10);
+    } catch (e) { return []; }
   }
 
   /*
@@ -3583,10 +3647,36 @@
           "색은 red·blue·green·orange 중에서 고르세요." }
       ] }]);
 
-      var clean = String(raw).replace(/```json|```/g, "").trim();
-      var got = JSON.parse(clean);
-      var marks = (got.marks || []).filter(function (m) { return m && m.type; }).slice(0, 10);
+      var marks = parseMarks(raw);
       if (!marks.length) throw new Error("표시할 것을 찾지 못했습니다");
+
+      /*
+       * 한 번 더 확인한다.
+       *
+       * 빈 그림에 좌표를 찍게 하면 절반쯤은 크게 빗나갔다(가지를 가리켜야 할
+       * 화살표가 갈라지는 곳을 가리키는 식). 그런데 이미 그려진 화살표를 보고
+       * "이게 맞느냐"를 따지는 건 훨씬 잘한다. 그래서 받은 표시를 격자 그림
+       * 위에 그려 다시 보여 주고, 틀린 것만 고쳐 달라고 한다.
+       */
+      setStatus("표시가 맞는지 한 번 더 보는 중…");
+      var check = drawDiagram(gridOn(base), { marks: marks });
+      try {
+        var raw2 = await callClaude([{ role: "user", content: [
+          { type: "image", source: { type: "base64", media_type: "image/jpeg",
+                                     data: check.toDataURL("image/jpeg", 0.9).split(",")[1] } },
+          { type: "text", text:
+            "강의자료 그림 위에 표시를 그려 보았습니다. 흐린 격자의 눈금은 (0,0)~(100,100)입니다.\n" +
+            "지금 그려진 표시의 JSON은 이렇습니다:\n" + JSON.stringify({ marks: marks }) + "\n\n" +
+            "각 표시가 이름표에 적힌 그 구조를 정확히 가리키는지 그림을 보고 하나씩 따지세요.\n" +
+            "- 화살표 끝(to)이 그 구조 위에 정확히 닿아야 합니다. 근처 빈 곳이나 옆 구조면 틀린 것입니다.\n" +
+            "- 동그라미·상자는 그 구조를 감싸야 합니다.\n" +
+            "- 이름표 자리(from)는 그림을 덮지 않는 빈 곳이면 됩니다.\n" +
+            "틀린 것은 좌표를 고치고, 맞는 것은 그대로 두세요. 도저히 짚을 수 없는 것은 빼세요.\n\n" +
+            "고친 전체를 같은 꼴의 JSON으로만 출력하세요. 설명이나 코드블록 표시는 넣지 마세요." }
+        ] }]);
+        var fixed = parseMarks(raw2);
+        if (fixed.length) marks = fixed;
+      } catch (e) { /* 확인이 안 돼도 처음 것은 쓸 만하다 */ }
 
       card.draw = { marks: marks };
       // 카드 썸네일도 표시가 얹힌 것으로 바꾼다 — 목록에서 바로 보여야 쓸모가 있다
