@@ -33,13 +33,17 @@ try {
  *
  * 전에는 구독 경로(claude -p)에 모델을 적지 않아서, 사람마다 Claude Code에
  * 기본으로 잡아 둔 모델로 갔다. 같은 앱인데 누구는 빠르고 누구는 느린 식으로
- * 결과가 갈렸다. 여기서 정해 준다. 바꾸려면 CLAUDE_MODEL · CLAUDE_EFFORT.
+ * 결과가 갈렸다. 여기서 정해 준다. 바꾸려면 CAPNOTE_MODEL · CAPNOTE_EFFORT.
+ *
+ * 이름을 CLAUDE_로 시작하게 두었다가 고쳤다. Claude Code 같은 도구가
+ * CLAUDE_EFFORT를 제 설정으로 이미 깔아 두는 환경이 있어서, 그 안에서 앱을
+ * 켜면 여기서 정한 medium이 말없이 high로 바뀌어 있었다. 앱 것은 앱 이름으로.
  *
  * effort는 medium이다. 수업 중에 쓰는 도구라 한 번 묻는 데 오래 걸리면
  * 안 쓰게 된다 — 정리·그림 표시에는 이 정도 깊이면 충분하다.
  */
-const MODEL = process.env.CLAUDE_MODEL || "claude-opus-5-5";
-const EFFORT = process.env.CLAUDE_EFFORT || "medium";
+const MODEL = process.env.CAPNOTE_MODEL || "claude-opus-5-5";
+const EFFORT = process.env.CAPNOTE_EFFORT || "medium";
 const PUBLIC = path.join(__dirname, "public");
 
 /*

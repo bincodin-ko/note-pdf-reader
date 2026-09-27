@@ -437,6 +437,8 @@
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.16);   /* 쪽 위에 놓인 쪽지 — 쪽과 같은 계열 */
   }
   .memo.manual { border-left-color: #4aa3e0; }
+  /* 쪽 위 그림 표시. 메모(4)보다 밑, 쪽보다 위. 누르는 것은 밑으로 통과시킨다 */
+  .diag { position: absolute; z-index: 3; pointer-events: none; }
   .memo:hover { outline: 1px solid var(--accent); }
   .memo.editing { cursor: default; overflow: visible; z-index: 8; }
   .memo .mline { white-space: pre; }
@@ -1289,6 +1291,18 @@
         메모를 얼마나 풀어 쓸지. "무엇을 시킬지"를 고르는 자리 옆이 맞다 —
         둘 다 오려낸 뒤에 무엇이 나올지를 정하는 것이다.
       -->
+      <!--
+        그림 표시는 위의 "무엇으로 정리할지"와 따로 켜고 끈다. 정리는 매번
+        골라 받고 싶어도 그림 표시는 늘 받고 싶을 수 있다 — 하나로 묶으면
+        자동 넣기를 끄는 순간 그림 표시도 같이 꺼진다.
+      -->
+      <div class="apbulk">
+        <div class="aphead">오린 그림에 화살표·이름표 자동 표시</div>
+        <div class="mlenrow" id="drawRow">
+          <button data-d="on">켬</button>
+          <button data-d="off">끔</button>
+        </div>
+      </div>
       <div class="apbulk">
         <div class="aphead">메모 길이</div>
         <div class="mlenrow" id="mlenRow"></div>
@@ -2278,7 +2292,8 @@
       if (c.img || c.qna || c.manual || c.page !== state.page) continue;
       if (!c.rect || !(c.rect.w > 0)) continue;
       try {
-        c.img = shrinkTo(await cropFromPdf(c.page, c.rect, 1600), 560)
+        // 표시해 둔 것이 있으면 다시 얹는다 — 안 그러면 열 때마다 표시가 사라진다
+        c.img = drawDiagram(shrinkTo(await cropFromPdf(c.page, c.rect, 1600), c.draw ? 1000 : 560), c.draw)
                   .toDataURL("image/jpeg", 0.8);
         changed = true;
       } catch (e) { /* 못 만들면 그림 없이 둔다 */ }
@@ -2906,6 +2921,13 @@
    */
   state.auto = null;                       // null이면 오려낸 뒤 묻고 고른다
 
+  /*
+   * 오린 그림에 표시를 자동으로 얹을지. 자동 넣기와 달리 저장해 둔다 —
+   * 수업마다 바뀌는 "무엇을 시킬지"가 아니라 이 사람이 좋아하는 방식이라서다.
+   */
+  state.autoDraw = false;
+  try { state.autoDraw = localStorage.getItem("capnote:autodraw") === "1"; } catch (e) {}
+
   function autoLabel() {
     if (!state.auto) return "끔";
     if (state.auto.mode) return modeLabel(state.auto.mode);
@@ -2953,8 +2975,12 @@
   }
 
   function renderAuto() {
-    $("autoWhat").textContent = autoLabel();
-    $("autoBtn").classList.toggle("on", !!state.auto);
+    // 그림 자동 표시만 켜져 있어도 단추에 보이게 한다 — 켜 둔 걸 잊으면 왜 그려지는지 모른다
+    $("autoWhat").textContent = autoLabel() + (state.autoDraw ? " · 그림" : "");
+    $("autoBtn").classList.toggle("on", !!state.auto || state.autoDraw);
+    Array.prototype.forEach.call($("drawRow").children, function (b) {
+      b.classList.toggle("primary", (b.dataset.d === "on") === state.autoDraw);
+    });
     $("autoBtn").title = state.auto
       ? "오려내면 묻지 않고 바로 " + (state.auto.mode ? modeLabel(state.auto.mode) : "\u0027" + state.auto.free + "\u0027") + "(으)로 정리해 붙입니다"
       : "오려내면 무엇을 시킬지 고르게 합니다";
@@ -3055,6 +3081,16 @@
       state.auto = { free: t };
       renderAuto(); closeAuto();
     };
+    Array.prototype.forEach.call($("drawRow").children, function (b) {
+      b.onclick = function () {
+        state.autoDraw = b.dataset.d === "on";
+        try { localStorage.setItem("capnote:autodraw", state.autoDraw ? "1" : "0"); } catch (e) {}
+        renderAuto();
+        setStatus(state.autoDraw
+          ? "이제 오려낼 때마다 그림에 화살표와 이름표를 얹습니다. 글만 오리면 건너뜁니다."
+          : "그림 자동 표시를 껐습니다. 카드의 '그림에 표시'로 하나씩 할 수 있습니다.");
+      };
+    });
     $("bulkAll").onclick = function () { showBulkSheet(); };
     // 목록 머리에서도 같은 창을 연다 — 두 군데지만 여는 것은 하나다
     $("bulkHead").onclick = function () { closeAuto(); showBulkSheet(); };
@@ -3306,6 +3342,11 @@
     renderCards();
 
     if (state.auto) runCard(card, state.auto.mode || null, state.auto.free || "");
+    /*
+     * 그림 표시는 정리를 기다리지 않고 바로 같이 시작한다. 정리를 고르기 전에도
+     * (자동 넣기가 꺼져 있어도) 돈다 — 그렇게 켜 달라는 설정이다.
+     */
+    if (state.autoDraw) askDiagram(card, true);
   }
 
   async function runCard(card, mode, free) {
@@ -3465,131 +3506,259 @@
   }
 
   /*
+   * 이름표 글자 크기는 그림 폭에 비례한다(폭 900px에 15px).
+   *
+   * 썸네일·쪽 위 표시·내보내기가 서로 다른 크기로 그리지만, 이름표 자리는
+   * 한 번만 정해 %로 적어 둔다. 글자도 폭에 비례해야 그 자리에 딱 맞는다.
+   */
+  function markFont(W) { return 15 * Math.max(0.35, W / 900); }
+  function markLabelSize(label, W, H) {
+    var fs = markFont(W), pad = fs * 0.4;
+    var g = document.createElement("canvas").getContext("2d");
+    g.font = "600 " + Math.round(fs) + "px sans-serif";
+    return { w: (g.measureText(label).width + pad * 2) / W * 100, h: (fs + pad * 1.6) / H * 100 };
+  }
+
+  // 표시가 가리키는 곳 (%)
+  function markTarget(m) {
+    if (m.type === "arrow" && m.to) return [+m.to[0], +m.to[1]];
+    if ((m.type === "circle" || m.type === "label") && m.at) return [+m.at[0], +m.at[1]];
+    if (m.type === "box" && m.rect) return [+m.rect[0] + m.rect[2] / 2, +m.rect[1] + m.rect[3] / 2];
+    return null;
+  }
+
+  /*
+   * 그림의 어디가 비었는지 100×100칸으로 잰다. 0은 흰 바탕, 1은 꽉 찬 곳.
+   *
+   * 이름표는 빈 곳에 놓아야 한다. 모델에게 "빈 곳에 놓아라"라고 시켰더니
+   * 근육 이름 글자 위나 그림 한가운데에 얹어 정작 봐야 할 그림을 가렸다.
+   * 빈 곳은 모델에게 물을 것 없이 화소를 세면 안다.
+   */
+  function inkMap(cv) {
+    var N = 200, t = document.createElement("canvas");
+    t.width = N; t.height = N;
+    var g = t.getContext("2d");
+    g.fillStyle = "#fff"; g.fillRect(0, 0, N, N);
+    g.imageSmoothingQuality = "high";
+    g.drawImage(cv, 0, 0, N, N);
+    var d = g.getImageData(0, 0, N, N).data;
+    var px = new Float32Array(N * N);
+    for (var i = 0; i < N * N; i++) {
+      var lo = Math.min(d[i * 4], d[i * 4 + 1], d[i * 4 + 2]);
+      px[i] = Math.max(0, Math.min(1, (245 - lo) / 120));
+    }
+    // 한 칸(2×2 화소)의 평균과 최댓값을 섞는다 — 가는 선이나 글자도 "찬 곳"으로 치려고
+    var ink = new Float32Array(100 * 100);
+    for (var y = 0; y < 100; y++) for (var x = 0; x < 100; x++) {
+      var s = 0, mx = 0;
+      for (var dy = 0; dy < 2; dy++) for (var dx = 0; dx < 2; dx++) {
+        var v = px[(y * 2 + dy) * N + x * 2 + dx];
+        s += v; if (v > mx) mx = v;
+      }
+      ink[y * 100 + x] = s / 8 + mx / 2;
+    }
+    return ink;
+  }
+
+  function inkIn(ink, r) {
+    var x0 = Math.max(0, Math.floor(r.x)), x1 = Math.min(99, Math.ceil(r.x + r.w) - 1);
+    var y0 = Math.max(0, Math.floor(r.y)), y1 = Math.min(99, Math.ceil(r.y + r.h) - 1);
+    var s = 0, n = 0;
+    for (var y = y0; y <= y1; y++) for (var x = x0; x <= x1; x++) { s += ink[y * 100 + x]; n++; }
+    return n ? s / n : 0;
+  }
+
+  function segHitsRect(a, b, r) {
+    // 선분을 잘게 나눠 네모 안에 드는 점이 있는지 본다. 칸이 100개뿐이라 이걸로 충분하다
+    for (var t = 0.08; t <= 0.92; t += 0.06) {
+      var x = a[0] + (b[0] - a[0]) * t, y = a[1] + (b[1] - a[1]) * t;
+      if (x > r.x && x < r.x + r.w && y > r.y && y < r.y + r.h) return true;
+    }
+    return false;
+  }
+  function segsCross(a, b, c, d) {
+    function s(p, q, r) { return (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]); }
+    return s(a, b, c) * s(a, b, d) < 0 && s(c, d, a) * s(c, d, b) < 0;
+  }
+  // 네모 가장자리에서 p에 가장 가까운 점 — 화살표·이끌림선이 여기서 나간다
+  function rectNear(r, p) {
+    return [Math.max(r.x, Math.min(p[0], r.x + r.w)), Math.max(r.y, Math.min(p[1], r.y + r.h))];
+  }
+
+  /*
+   * 이름표 자리를 정한다. 결과는 m.lab = [x, y, 너비, 높이] (%).
+   *
+   * 가리키는 곳 둘레를 거리·방향별로 훑어 가장 싼 자리를 고른다. 값은
+   * 그림을 얼마나 덮는지가 가장 크고, 멀수록·다른 선과 엇갈릴수록 조금씩
+   * 비싸진다. 다른 이름표와 겹치는 자리는 아예 안 쓴다. ink가 없으면
+   * (예전에 저장된 표시를 다시 그릴 때) 겹치지 않는 것만 따진다.
+   */
+  function layoutMarks(marks, W, H, ink) {
+    var asp = W / H;
+    var placed = [], leads = [];
+    var targets = marks.map(markTarget);
+
+    marks.forEach(function (m, i) {
+      var T = targets[i];
+      if (!T || !m.label) { delete m.lab; return; }
+      var sz = markLabelSize(m.label, W, H);
+      // 동그라미는 테두리 바깥부터 잰다 — 안쪽에 이름표를 두면 동그라미가 가린다
+      var r0 = m.type === "circle" ? Math.max(+m.rx || +m.r || 8, 3) * Math.min(1, H / W)
+             : m.type === "box" ? Math.max(m.rect[2], m.rect[3]) / 2 : 0;
+
+      var cands = [];
+      if (m.type === "arrow" && m.from) cands.push({ c: [+m.from[0], +m.from[1]], d: 0, pref: true });
+      if (m.type === "label") cands.push({ c: T, d: 0, pref: true });
+      [6, 9, 13, 17, 22, 28, 35, 43, 52].forEach(function (d) {
+        for (var a = 0; a < 16; a++) {
+          var ang = a / 16 * Math.PI * 2;
+          cands.push({ c: [T[0] + (d + r0) * Math.cos(ang), T[1] + (d + r0) * Math.sin(ang) * asp], d: d });
+        }
+      });
+
+      var best = null, bestCost = Infinity, loose = null, looseCost = Infinity;
+      cands.forEach(function (cd) {
+        var r = { x: cd.c[0] - sz.w / 2, y: cd.c[1] - sz.h / 2, w: sz.w, h: sz.h };
+        if (r.x < 0.5 || r.y < 0.5 || r.x + r.w > 99.5 || r.y + r.h > 99.5) return;
+        var cost = cd.d * 0.18 + (cd.pref ? -1.5 : 0);
+        if (ink) cost += inkIn(ink, r) * 30;
+        // 다른 표시가 가리키는 곳을 덮으면 안 된다
+        targets.forEach(function (q, j) {
+          if (q && j !== i && q[0] > r.x - 2 && q[0] < r.x + r.w + 2 && q[1] > r.y - 2 && q[1] < r.y + r.h + 2) cost += 40;
+        });
+        if (T[0] > r.x && T[0] < r.x + r.w && T[1] > r.y && T[1] < r.y + r.h && m.type !== "label") cost += 40;
+        var S = rectNear(r, T);
+        placed.forEach(function (o) { if (segHitsRect(S, T, o)) cost += 20; });
+        leads.forEach(function (l) { if (segsCross(S, T, l[0], l[1])) cost += 8; });
+        if (ink && m.type !== "label") {
+          // 선이 지나가는 곳도 조금 따진다. 그림을 가로지르는 긴 선은 덜 좋다
+          var s = 0;
+          for (var t = 0.1; t < 0.95; t += 0.1) {
+            var lx = Math.max(0, Math.min(99, Math.round(S[0] + (T[0] - S[0]) * t)));
+            var ly = Math.max(0, Math.min(99, Math.round(S[1] + (T[1] - S[1]) * t)));
+            s += ink[ly * 100 + lx];
+          }
+          cost += s * 0.6;
+        }
+        var clash = placed.some(function (o) {
+          return r.x < o.x + o.w + 0.8 && r.x + r.w + 0.8 > o.x && r.y < o.y + o.h + 0.8 && r.y + r.h + 0.8 > o.y;
+        });
+        if (!clash && cost < bestCost) { best = r; bestCost = cost; }
+        if (cost < looseCost) { loose = r; looseCost = cost; }
+      });
+      var got = best || loose || { x: Math.max(0.5, Math.min(T[0] - sz.w / 2, 99.5 - sz.w)),
+                                    y: Math.max(0.5, Math.min(T[1] - sz.h - 3, 99.5 - sz.h)), w: sz.w, h: sz.h };
+      placed.push(got);
+      leads.push([rectNear(got, T), T]);
+      m.lab = [got.x, got.y, got.w, got.h].map(function (v) { return Math.round(v * 100) / 100; });
+    });
+    return marks;
+  }
+
+  /*
    * 받아 온 표시를 그림 위에 그린다.
    *
    * 손으로 그린 것보다 깔끔해야 할 이유가 있다 — 사람이 그린 화살표는 본인이
    * 그려서 기억하지만, 남이(여기서는 앱이) 그려 준 것은 알아볼 수 있어야만
-   * 쓸모가 있다. 그래서 글자에는 흰 테를 두르고, 이름표는 반투명 흰 칩에 얹어
-   * 어떤 그림 위에서도 읽히게 한다.
+   * 쓸모가 있다. 그렇다고 표시가 굵고 크면 이번엔 그림이 안 보인다.
+   * 그래서 선은 가늘게 하되 흰 테를 둘러 어떤 바탕에서도 읽히게 하고,
+   * 이름표는 빈 곳(layoutMarks)에 놓는다. 선을 먼저 다 긋고 이름표를 나중에
+   * 얹어, 어떤 선도 이름표 글자를 지나가지 않게 한다.
    */
   function drawDiagram(cv, draw) {
     if (!draw || !draw.marks || !draw.marks.length) return cv;
     var g = cv.getContext("2d");
     var W = cv.width, H = cv.height;
-    var k = Math.max(1, W / 900);
-    var px = function (v) { return Math.max(0, Math.min(100, Number(v) || 0)) / 100; };
+    var k = Math.max(0.35, W / 900);
+    var marks = draw.marks.slice(0, 10);
+    // 예전(0.22) 표시에는 이름표 자리가 없다. 겹치지 않게만 잡아 그린다
+    if (marks.some(function (m) { return m.label && !m.lab; })) {
+      marks = layoutMarks(JSON.parse(JSON.stringify(marks)), W, H, null);
+    }
+    var X = function (v) { return Math.max(0, Math.min(100, Number(v) || 0)) / 100 * W; };
+    var Y = function (v) { return Math.max(0, Math.min(100, Number(v) || 0)) / 100 * H; };
 
     g.save();
     g.lineCap = "round";
     g.lineJoin = "round";
 
-    /*
-     * 이름표 자리를 겹치지 않게 잡는다.
-     *
-     * 모델은 이름표 자리까지 잘 고르지 못해서, 둘이 한 곳에 겹쳐 "백질"이
-     * "전정중열" 밑에 가려졌다. 이미 놓은 이름표를 기억해 두고, 겹치면
-     * 위·아래·옆으로 차례로 옮겨 본다. 그래도 안 되면 조금씩 내린다.
-     */
-    var placed = [];
-    function hits(r) {
-      for (var q = 0; q < placed.length; q++) {
-        var o = placed[q];
-        if (r.x < o.x + o.w + 4 && r.x + r.w + 4 > o.x && r.y < o.y + o.h + 3 && r.y + r.h + 3 > o.y) return true;
-      }
-      return false;
-    }
-    function spot(ax, ay, w, h) {
-      var cands = [
-        [ax - w / 2, ay - h - 6 * k], [ax - w / 2, ay + 8 * k],
-        [ax + 8 * k, ay - h / 2], [ax - w - 8 * k, ay - h / 2]
-      ];
-      for (var t = 1; t <= 8; t++) cands.push([ax - w / 2, ay + 8 * k + t * (h + 4 * k)]);
-      for (var c = 0; c < cands.length; c++) {
-        var r = { x: Math.max(2, Math.min(cands[c][0], W - w - 2)),
-                  y: Math.max(2, Math.min(cands[c][1], H - h - 2)), w: w, h: h };
-        if (!hits(r)) return r;
-      }
-      return { x: Math.max(2, Math.min(ax - w / 2, W - w - 2)), y: Math.max(2, Math.min(ay - h - 6 * k, H - h - 2)), w: w, h: h };
+    // 흰 테를 먼저 긋고 그 위에 색 선을 긋는다
+    function line(path, col, w) {
+      g.strokeStyle = "rgba(255,255,255,0.9)"; g.lineWidth = w + 3.2 * k; path(); g.stroke();
+      g.strokeStyle = col; g.lineWidth = w; path(); g.stroke();
     }
 
-    draw.marks.slice(0, 10).forEach(function (m, i) {
+    marks.forEach(function (m, i) {
       var col = markColor(m.color, i);
-      g.strokeStyle = col;
-      g.fillStyle = col;
-      g.lineWidth = 2.6 * k;
+      var T = markTarget(m);
+      if (!T) return;
+      var lab = m.lab ? { x: m.lab[0], y: m.lab[1], w: m.lab[2], h: m.lab[3] } : null;
+      var S = lab ? rectNear(lab, T) : null;
 
-      var lx = 0, ly = 0;                    // 이름표를 놓을 자리
-
-      if (m.type === "arrow" && m.from && m.to) {
-        var x1 = px(m.from[0]) * W, y1 = px(m.from[1]) * H;
-        var x2 = px(m.to[0]) * W, y2 = px(m.to[1]) * H;
-        // 살짝 휘어야 여러 개가 겹쳐도 서로 구분된다
-        var mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
-        var dx = x2 - x1, dy = y2 - y1;
-        var len = Math.sqrt(dx * dx + dy * dy) || 1;
-        var cx = mx - dy / len * len * 0.12, cy = my + dx / len * len * 0.12;
-        g.beginPath();
-        g.moveTo(x1, y1);
-        g.quadraticCurveTo(cx, cy, x2, y2);
-        g.stroke();
-        // 화살촉은 끝에서 제어점 쪽을 보게 돌린다
-        var ang = Math.atan2(y2 - cy, x2 - cx), hd = 11 * k;
-        g.beginPath();
-        g.moveTo(x2, y2);
-        g.lineTo(x2 - hd * Math.cos(ang - 0.4), y2 - hd * Math.sin(ang - 0.4));
-        g.lineTo(x2 - hd * Math.cos(ang + 0.4), y2 - hd * Math.sin(ang + 0.4));
-        g.closePath();
-        g.fill();
-        lx = x1; ly = y1;
-      } else if (m.type === "circle" && m.at) {
-        var ax = px(m.at[0]) * W, ay = px(m.at[1]) * H;
-        var rx = Math.max(10 * k, px(m.rx || m.r || 8) * W), ry = Math.max(10 * k, px(m.ry || m.r || 8) * H);
-        g.beginPath();
-        g.ellipse(ax, ay, rx, ry, 0, 0, Math.PI * 2);
-        g.stroke();
-        lx = ax; ly = ay - ry - 6 * k;
-      } else if (m.type === "box" && m.rect) {
-        var bx = px(m.rect[0]) * W, by = px(m.rect[1]) * H;
-        var bw = px(m.rect[2]) * W, bh = px(m.rect[3]) * H;
-        g.strokeRect(bx, by, bw, bh);
-        lx = bx; ly = by - 6 * k;
-      } else if (m.type === "label" && m.at) {
-        lx = px(m.at[0]) * W; ly = px(m.at[1]) * H;
-      } else {
-        return;
+      if (m.type === "arrow") {
+        var x1 = lab ? X(S[0]) : X(m.from ? m.from[0] : T[0]), y1 = lab ? Y(S[1]) : Y(m.from ? m.from[1] : T[1]);
+        var x2 = X(T[0]), y2 = Y(T[1]);
+        var ang = Math.atan2(y2 - y1, x2 - x1), hd = 10 * k;
+        // 선은 촉 밑동에서 멈춘다 — 끝까지 그으면 둥근 끝이 촉 밖으로 삐져나온다
+        var bx = x2 - hd * 0.8 * Math.cos(ang), by = y2 - hd * 0.8 * Math.sin(ang);
+        line(function () { g.beginPath(); g.moveTo(x1, y1); g.lineTo(bx, by); }, col, 2.2 * k);
+        function head() {
+          g.beginPath();
+          g.moveTo(x2, y2);
+          g.lineTo(x2 - hd * Math.cos(ang - 0.42), y2 - hd * Math.sin(ang - 0.42));
+          g.lineTo(x2 - hd * Math.cos(ang + 0.42), y2 - hd * Math.sin(ang + 0.42));
+          g.closePath();
+        }
+        g.strokeStyle = "rgba(255,255,255,0.9)"; g.lineWidth = 2.6 * k; head(); g.stroke();
+        g.fillStyle = col; head(); g.fill();
+      } else if (m.type === "circle") {
+        /*
+         * r은 그림의 짧은 변 기준으로 잰다. 가로·세로를 따로 곱했더니 넓게
+         * 오린 그림에서 동그라미가 옆으로 퍼진 타원이 되어 그림 절반을 덮었다.
+         */
+        var side = Math.min(W, H) / 100;
+        var rx = Math.max(8 * k, (m.rx ? X(m.rx) : (+m.r || 8) * side));
+        var ry = Math.max(8 * k, (m.ry ? Y(m.ry) : (+m.r || 8) * side));
+        var cx = X(T[0]), cy = Y(T[1]);
+        line(function () { g.beginPath(); g.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); }, col, 2.2 * k);
+        if (lab) {
+          // 이름표에서 동그라미 테두리까지만 잇는다
+          var sx = X(S[0]), sy = Y(S[1]);
+          var a = Math.atan2(sy - cy, sx - cx);
+          var ex = cx + rx * Math.cos(a), ey = cy + ry * Math.sin(a);
+          if (Math.hypot(sx - ex, sy - ey) > 4 * k) {
+            line(function () { g.beginPath(); g.moveTo(sx, sy); g.lineTo(ex, ey); }, col, 1.4 * k);
+          }
+        }
+      } else if (m.type === "box") {
+        var rx0 = X(m.rect[0]), ry0 = Y(m.rect[1]), rw = X(m.rect[2]), rh = Y(m.rect[3]);
+        line(function () { g.beginPath(); g.rect(rx0, ry0, rw, rh); }, col, 2 * k);
+        if (lab) {
+          var bxr = { x: m.rect[0], y: m.rect[1], w: m.rect[2], h: m.rect[3] };
+          var E = rectNear(bxr, S), S2 = S;
+          if (Math.hypot(X(S2[0]) - X(E[0]), Y(S2[1]) - Y(E[1])) > 4 * k) {
+            line(function () { g.beginPath(); g.moveTo(X(S2[0]), Y(S2[1])); g.lineTo(X(E[0]), Y(E[1])); }, col, 1.4 * k);
+          }
+        }
       }
+    });
 
-      if (!m.label) return;
-      var fs = 15 * k;
+    marks.forEach(function (m, i) {
+      if (!m.label || !m.lab) return;
+      var col = markColor(m.color, i);
+      var fs = markFont(W);
+      var bx = X(m.lab[0]), by = Y(m.lab[1]), bw = X(m.lab[2]), bh = Y(m.lab[3]);
+      g.fillStyle = "rgba(255,255,255,0.95)";
+      g.strokeStyle = col;
+      g.lineWidth = 1.4 * k;
+      g.beginPath();
+      if (g.roundRect) g.roundRect(bx, by, bw, bh, 5 * k); else g.rect(bx, by, bw, bh);
+      g.fill(); g.stroke();
+      g.fillStyle = col;
       g.font = "600 " + Math.round(fs) + "px sans-serif";
-      var tw = g.measureText(m.label).width;
-      var pad = 6 * k, bh2 = fs + pad * 1.6;
-      var at = spot(lx, ly, tw + pad * 2, bh2);
-      placed.push(at);
-      var bx2 = at.x, by2 = at.y;
-      // 이름표를 옮겼으면 화살표 꼬리까지 가는 가는 선을 그어 누구 것인지 잇는다
-      if (m.type === "arrow" && (Math.abs(bx2 + at.w / 2 - lx) > 6 * k || Math.abs(by2 + at.h / 2 - ly) > at.h)) {
-        g.save();
-        g.strokeStyle = col; g.globalAlpha = 0.55; g.lineWidth = 1.2 * k;
-        g.setLineDash([4 * k, 3 * k]);
-        g.beginPath(); g.moveTo(lx, ly);
-        g.lineTo(Math.max(bx2, Math.min(lx, bx2 + at.w)), Math.max(by2, Math.min(ly, by2 + at.h)));
-        g.stroke();
-        g.restore();
-      }
-
-      g.fillStyle = "rgba(255,255,255,0.92)";
-      g.strokeStyle = col;
-      g.lineWidth = 1.6 * k;
-      if (g.roundRect) {
-        g.beginPath(); g.roundRect(bx2, by2, tw + pad * 2, bh2, 6 * k); g.fill(); g.stroke();
-      } else {
-        g.fillRect(bx2, by2, tw + pad * 2, bh2);
-        g.strokeRect(bx2, by2, tw + pad * 2, bh2);
-      }
-      g.fillStyle = col;
+      g.textAlign = "center";
       g.textBaseline = "middle";
-      g.fillText(m.label, bx2 + pad, by2 + bh2 / 2);
+      g.fillText(m.label, bx + bw / 2, by + bh / 2 + fs * 0.04);
     });
 
     g.restore();
@@ -3613,11 +3782,12 @@
    * 오려낼 때 쓴 그림을 다시 원본에서 크게 떠 온다 — 카드에 든 썸네일로는
    * 모델이 잔글씨를 못 읽는다. 격자를 얹어 보내고 좌표로 답을 받는다.
    */
-  async function askDiagram(card) {
+  async function askDiagram(card, quiet) {
     if (card.drawing) return;
     card.drawing = true;
     renderCards();
-    setStatus("그림에 표시할 자리를 찾는 중…");
+    // 자동으로 돌 때는 정리 쪽 안내를 덮지 않는다 — 끝났을 때만 한 줄 알린다
+    if (!quiet) setStatus("그림에 표시할 자리를 찾는 중…");
 
     try {
       var base = null;
@@ -3635,20 +3805,30 @@
           "왼쪽 위가 (0,0), 오른쪽 아래가 (100,100)입니다.\n\n" +
           (card.summary ? "이 부분의 정리:\n" + card.summary + "\n\n" : "") +
           "학생이 한눈에 알아보도록 이 그림에 표시를 얹으려 합니다.\n" +
-          "무엇이 어디인지, 무엇이 어디로 가는지를 3~6개만 짚으세요. 많으면 지저분해집니다.\n" +
-          "격자 눈금을 읽어 자리를 정확히 대세요. 이름표는 12자 이내로 짧게.\n\n" +
+          "무엇이 어디인지, 무엇이 어디로 가는지를 3~5개만 짚으세요. 많으면 그림이 가려집니다.\n" +
+          "격자 눈금을 읽어 자리를 정확히 대세요. 이름표는 10자 이내로 짧게.\n" +
+          "되도록 화살표로 짚으세요. circle의 r은 그림 짧은 변의 %이고, 그 구조만 딱 감쌀 만큼 작게.\n" +
+          "이름표는 앱이 그림의 빈 곳을 찾아 놓습니다. 가리킬 곳(to·at)만 정확하면 됩니다.\n" +
+          "그림(도해·사진·그래프)이 없고 글만 있으면 {\"marks\":[]} 만 출력하세요.\n\n" +
           "아래 JSON만 출력하세요. 설명이나 코드블록 표시는 넣지 마세요.\n" +
           '{"marks":[' +
           '{"type":"arrow","from":[x,y],"to":[x,y],"label":"짧은 이름","color":"red"},' +
           '{"type":"circle","at":[x,y],"r":8,"label":"짧은 이름","color":"blue"},' +
           '{"type":"box","rect":[x,y,너비,높이],"label":"짧은 이름","color":"green"}' +
           "]}\n" +
-          "arrow의 from은 이름표를 놓을 빈 자리, to는 가리킬 곳입니다. " +
+          "arrow의 to는 가리킬 곳, from은 이름표를 두고 싶은 쪽(대략)입니다. " +
           "색은 red·blue·green·orange 중에서 고르세요." }
       ] }]);
 
       var marks = parseMarks(raw);
-      if (!marks.length) throw new Error("표시할 것을 찾지 못했습니다");
+      if (!marks.length) {
+        // 글만 오린 것이면 자동 표시는 조용히 넘어간다. 눌러서 시켰을 때만 알린다
+        card.drawing = false;
+        renderCards();
+        if (!quiet) setStatus("표시할 그림을 찾지 못했습니다.");
+        return;
+      }
+      var ink = inkMap(base);
 
       /*
        * 한 번 더 확인한다.
@@ -3658,7 +3838,8 @@
        * "이게 맞느냐"를 따지는 건 훨씬 잘한다. 그래서 받은 표시를 격자 그림
        * 위에 그려 다시 보여 주고, 틀린 것만 고쳐 달라고 한다.
        */
-      setStatus("표시가 맞는지 한 번 더 보는 중…");
+      if (!quiet) setStatus("표시가 맞는지 한 번 더 보는 중…");
+      layoutMarks(marks, base.width, base.height, ink);
       var check = drawDiagram(gridOn(base), { marks: marks });
       try {
         var raw2 = await callClaude([{ role: "user", content: [
@@ -3669,8 +3850,8 @@
             "지금 그려진 표시의 JSON은 이렇습니다:\n" + JSON.stringify({ marks: marks }) + "\n\n" +
             "각 표시가 이름표에 적힌 그 구조를 정확히 가리키는지 그림을 보고 하나씩 따지세요.\n" +
             "- 화살표 끝(to)이 그 구조 위에 정확히 닿아야 합니다. 근처 빈 곳이나 옆 구조면 틀린 것입니다.\n" +
-            "- 동그라미·상자는 그 구조를 감싸야 합니다.\n" +
-            "- 이름표 자리(from)는 그림을 덮지 않는 빈 곳이면 됩니다.\n" +
+            "- 동그라미·상자는 그 구조를 감싸되, 옆 구조까지 덮을 만큼 크면 줄이세요.\n" +
+            "- 이름표 자리는 앱이 정하니 따지지 않아도 됩니다.\n" +
             "틀린 것은 좌표를 고치고, 맞는 것은 그대로 두세요. 도저히 짚을 수 없는 것은 빼세요.\n\n" +
             "고친 전체를 같은 꼴의 JSON으로만 출력하세요. 설명이나 코드블록 표시는 넣지 마세요." }
         ] }]);
@@ -3678,17 +3859,85 @@
         if (fixed.length) marks = fixed;
       } catch (e) { /* 확인이 안 돼도 처음 것은 쓸 만하다 */ }
 
+      // 고친 뒤 이름표 자리를 다시 잡는다 — 가리키는 곳이 바뀌었을 수 있다
+      layoutMarks(marks, base.width, base.height, ink);
       card.draw = { marks: marks };
       // 카드 썸네일도 표시가 얹힌 것으로 바꾼다 — 목록에서 바로 보여야 쓸모가 있다
       var shown = drawDiagram(shrinkTo(base, 1000), card.draw);
       card.img = shown.toDataURL("image/jpeg", 0.85);
-      setStatus(marks.length + "곳에 표시했습니다.");
+      setStatus(card.page + "쪽 그림에 " + marks.length + "곳 표시했습니다.");
     } catch (e) {
       setStatus("그림에 표시하지 못했습니다: " + String(e.message || e), true);
     }
     card.drawing = false;
     renderCards();
+    drawMemos();
     saveCard(card);
+  }
+
+  // 표시를 걷어낸다. 썸네일도 표시 없는 원본으로 되돌린다
+  async function clearDiagram(card) {
+    var old = card.draw;
+    delete card.draw;
+    try { card.img = shrinkTo(await cropFromPdf(card.page, card.rect, 1400), 1000).toDataURL("image/jpeg", 0.85); }
+    catch (e) {}
+    renderCards(); drawMemos(); saveCard(card);
+    offerUndo("그림 표시를 지웠습니다.", function () {
+      card.draw = old;
+      redrawThumb(card);
+    });
+  }
+
+  // 저장된 표시를 썸네일에 다시 얹는다 (모델에게 다시 묻지 않는다)
+  async function redrawThumb(card) {
+    try {
+      card.img = drawDiagram(shrinkTo(await cropFromPdf(card.page, card.rect, 1400), 1000), card.draw)
+                   .toDataURL("image/jpeg", 0.85);
+    } catch (e) {}
+    renderCards(); drawMemos(); saveCard(card);
+    setStatus("되돌렸습니다.");
+  }
+
+  /*
+   * 쪽 위에도 표시를 얹는다.
+   *
+   * 처음엔 카드 썸네일과 정리 PDF에만 그렸다. 그런데 공부하면서 보는 곳은
+   * 쪽이다 — 앱 안에서 그림을 보는데 표시가 없으니 "그려지지 않는다"가
+   * 됐다. 오려낸 자리에 투명한 그림 한 장을 겹친다. 누르는 것은 통과시켜
+   * 그 밑의 쪽에서 드래그·메모가 그대로 된다.
+   *
+   * 매번 캔버스에 새로 그리면 메모를 움직일 때마다 버벅인다. 표시가 같으면
+   * 한 번 그린 것을 다시 쓴다.
+   */
+  var diagCache = {};
+  function diagUrl(card, aspect) {
+    var key = card.id + "|" + aspect.toFixed(4) + "|" + JSON.stringify(card.draw);
+    if (diagCache[card.id] && diagCache[card.id].key === key) return diagCache[card.id].url;
+    var cv = document.createElement("canvas");
+    cv.width = 1200;
+    cv.height = Math.max(1, Math.round(1200 * aspect));
+    var url = drawDiagram(cv, card.draw).toDataURL("image/png");
+    diagCache[card.id] = { key: key, url: url };
+    return url;
+  }
+
+  function drawDiagOverlays() {
+    Array.prototype.forEach.call(state.layer.querySelectorAll(".diag"), function (m) { m.remove(); });
+    state.cards.forEach(function (card) {
+      if (!card.draw || !card.rect || !(card.rect.w > 0)) return;
+      var slot = slotOf(card.page);
+      if (!slot) return;
+      var w = card.rect.w * slot.w, h = card.rect.h * slot.h;
+      var im = document.createElement("img");
+      im.className = "diag";
+      im.alt = "";
+      im.src = diagUrl(card, h / w);
+      im.style.left = (slot.x + card.rect.x * slot.w) + "px";
+      im.style.top = (slot.y + card.rect.y * slot.h) + "px";
+      im.style.width = w + "px";
+      im.style.height = h + "px";
+      state.layer.appendChild(im);
+    });
   }
 
   async function expand(card) {
@@ -4792,6 +5041,12 @@
           db.title = "그림 위에 화살표와 이름표를 얹어 어디가 무엇인지 보여 줍니다";
           db.onclick = function () { askDiagram(card); };
           more.appendChild(db);
+          if (card.draw && !card.drawing) {
+            var dx = document.createElement("button");
+            dx.textContent = "표시 지우기";
+            dx.onclick = function () { clearDiagram(card); };
+            more.appendChild(dx);
+          }
         }
         if (more.children.length) body.appendChild(more);
 
@@ -5228,6 +5483,7 @@
     if (!state.layer || !state.viewport) return;
     memoEditor = null;                      // 아래에서 다시 그리며 새로 잡는다
     Array.prototype.forEach.call(state.layer.querySelectorAll(".memo"), function (m) { m.remove(); });
+    drawDiagOverlays();                     // 메모가 그려지는 때면 표시도 늘 같이 따라간다
 
     state.cards.forEach(function (card) {
       if (!card.inserted) return;
@@ -6189,7 +6445,8 @@
 
   $("expPdf").onclick = async function () {
     var inserted = state.cards.filter(function (c) { return c.inserted; });
-    if (!inserted.length && !state.marks.length) {
+    if (!inserted.length && !state.marks.length &&
+        !state.cards.some(function (c) { return c.draw && c.rect && c.rect.w > 0; })) {
       setStatus("쪽에 붙인 메모도 형광펜도 아직 없습니다. 정리 카드에서 \"예\"를 눌러 붙이거나 빈 곳을 두 번 눌러 메모를 쓰세요.", true);
       return;
     }
@@ -6207,7 +6464,10 @@
      * 구워서 내보낸다. 대신 구운 것은 지울 수 없으므로 되열어 고칠 수 없다.
      */
     var burn = $("expBurn").checked;
-    if (scope === "page" && !inserted.some(function (c) { return c.page === state.page; })) {
+    // 그림 표시도 쪽에 얹어 내보낸다 — 앱에서 보던 쪽과 내보낸 쪽이 같아야 한다
+    var drawn = state.cards.filter(function (c) { return c.draw && c.rect && c.rect.w > 0; });
+    if (scope === "page" && !inserted.some(function (c) { return c.page === state.page; }) &&
+        !drawn.some(function (c) { return c.page === state.page; })) {
       setStatus("이 쪽에는 붙인 메모가 없습니다.");
       return;
     }
@@ -6229,6 +6489,7 @@
         if (scope === "page") keep[state.page] = true;
         else {
           inserted.forEach(function (c) { keep[c.page] = true; });
+          drawn.forEach(function (c) { keep[c.page] = true; });
           state.marks.forEach(function (m) { keep[m.page] = true; });
         }
         var order = Object.keys(keep).map(Number).sort(function (a, b) { return a - b; });
@@ -6254,7 +6515,7 @@
       // 이전에 넣은 우리 주석(메모·형광펜)을 모두 걷어낸 뒤 새로 넣는다
       doc.getPages().forEach(function (pg) { removeMemoAnnots(doc, pg); });
 
-      var putMarks = 0, putMemos = 0, skipped = [];
+      var putMarks = 0, putMemos = 0, putDraws = 0, skipped = [];
 
       state.marks.forEach(function (mk) {
         var op = outPage(mk.page);
@@ -6323,6 +6584,28 @@
       }
 
       /*
+       * 그림 표시는 투명한 그림 한 장으로 오려낸 자리에 겹친다. 굽지 않을
+       * 때는 메모와 같은 /Capnote 주석으로 넣어, 다시 내보낼 때 걷어내고
+       * 새로 넣게 한다 — 안 그러면 표시를 고칠 때마다 겹쳐 쌓인다.
+       */
+      for (var di = 0; di < drawn.length; di++) {
+        var dc = drawn[di];
+        var dop = outPage(dc.page);
+        if (!dop || dop < 1 || dop > doc.getPageCount()) continue;
+        var dpg = doc.getPage(dop - 1);
+        var dw = dpg.getWidth(), dh = dpg.getHeight();
+        var rw = dc.rect.w * dw, rh = dc.rect.h * dh;
+        var ov = document.createElement("canvas");
+        ov.width = 1600;
+        ov.height = Math.max(1, Math.round(1600 * rh / rw));
+        var dpng = await doc.embedPng(drawDiagram(ov, dc.draw).toDataURL("image/png"));
+        var dx = dc.rect.x * dw, dy = dh - (dc.rect.y + dc.rect.h) * dh;
+        if (burn) dpg.drawImage(dpng, { x: dx, y: dy, width: rw, height: rh });
+        else addMemoAnnot(doc, dpg, dpng.ref, dx, dy, rw, rh);
+        putDraws++;
+      }
+
+      /*
        * 카드 정보를 PDF 안에 적어 둔다. 이걸 다시 우리 앱에서 열면 메모를
        * 그대로 되살려 고칠 수 있다. 썸네일(img)은 빼서 파일을 가볍게 유지하고,
        * 다시 열 때 쪽에서 새로 잘라 만든다.
@@ -6361,6 +6644,7 @@
        */
       var note = "메모 " + putMemos + "개" +
                  (putMarks ? " · 형광펜 " + putMarks + "곳" : "") +
+                 (putDraws ? " · 그림 표시 " + putDraws + "장" : "") +
                  " · " + doc.getPageCount() + "쪽입니다. ";
       /*
        * 메모가 한 개도 안 나갔으면 그 말부터 한다.
@@ -6369,7 +6653,8 @@
        * 않았으면 PDF에는 넣을 자리가 없다. 그걸 모르면 "원본이 하나 더 생겼다"로만
        * 보인다.
        */
-      if (!putMemos) {
+      // 그림 표시만 내보낸 것은 일부러 그런 것이다. 그때는 탓하지 않는다
+      if (!putMemos && !putDraws) {
         note = "메모가 한 개도 안 들어갔습니다 — 쪽에 붙인 메모만 나갑니다. " +
                "오른쪽 정리 카드에서 \"예\"를 눌러 붙이거나, 쪽의 빈 곳을 두 번 눌러 직접 메모를 쓰세요. " +
                (putMarks ? "형광펜 " + putMarks + "곳은 들어갔습니다. " : "") +
