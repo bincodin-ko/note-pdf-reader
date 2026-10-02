@@ -15,6 +15,8 @@ PDF 강의자료에서 마우스로 영역을 드래그하면 그 부분을 잘�
 - `public/index.html` — 앱 전체. 화면·선택·카드·메모·내보내기가 한 파일에 들어 있다
 - `public/storage.js` — IndexedDB 저장소
 - `main.js` — Electron 껍데기. 서버를 앱 안에서 띄우고 창으로 연다
+- `android/` — 안드로이드(태블릿) 껍데기. `public/`을 앱 안에 담은 웹뷰이고,
+  AI는 PC의 `server.js`에 연결 코드를 붙여 부탁한다. 빌드는 GitHub Actions에서만 한다
 
 ## 지켜야 할 것
 

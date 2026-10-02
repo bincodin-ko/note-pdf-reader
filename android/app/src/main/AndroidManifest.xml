@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!--
+      usesCleartextTraffic: PC는 http로 기다린다(https 인증서를 집 PC마다 만들 수
+      없다). 멀리서 붙을 때는 Tailscale이 그 길을 이미 암호화한다.
+
+      configChanges: 태블릿을 돌릴 때마다 화면을 새로 띄우면 보던 쪽과 쓰던 메모가
+      날아간다. 돌려도 그대로 두고 화면 폭만 바뀌게 한다 — 배치는 앱이 알아서 맞춘다.
+    -->
+    <application
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true"
+        android:hardwareAccelerated="true"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|density|uiMode"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

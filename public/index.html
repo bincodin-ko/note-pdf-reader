@@ -2,7 +2,11 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<!--
+  화면 전체 확대는 막는다. 태블릿에서 두 손가락이 쪽 밖(정리 칸, 팝업)에 닿으면
+  앱 전체가 확대되어 단추가 화면 밖으로 밀려났다. 쪽의 확대는 앱이 따로 한다.
+-->
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
 <title>오려둔 공책</title>
 <script src="storage.js"></script>
 </head>
@@ -198,6 +202,20 @@
   }
   @media (max-width: 1080px) {
     #mfsDown .lbl, #mfsUp .lbl { display: none; }
+  }
+  /*
+   * 태블릿을 세로로 든 폭(800px 안팎). 위 줄이 150px쯤 넘쳤다.
+   * 앱 이름을 먼저 뺀다 — 이미 이 앱 안에 있다는 건 안다. 손가락으로 쓰는
+   * 기기에서는 확대·축소 단추도 뺀다. 두 손가락으로 벌리고 오므리는 게 그 일을
+   * 하므로 단추가 겹친다. 마우스로 쓰는 좁은 창에서는 단추를 남긴다.
+   */
+  @media (max-width: 820px) {
+    .bar .mark { display: none; }
+  }
+  @media (max-width: 820px) and (pointer: coarse) {
+    #zoomin, #zoomout { display: none; }
+    /* 쪽 넘기기는 쪽 양옆의 큰 화살표가 한다. 손가락에는 그쪽이 더 크고 가깝다 */
+    .bar #prev, .bar #next { display: none; }
   }
   .bar .tool button + button { border-left: 1px solid #48484a; }
   .bar .pageno { color: #cccccc; }
@@ -437,6 +455,7 @@
     overflow: hidden;
     z-index: 4;
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.16);   /* 쪽 위에 놓인 쪽지 — 쪽과 같은 계열 */
+    touch-action: none;   /* 손가락으로 끌 때 화면이 대신 밀려 가면 메모를 못 옮긴다 */
   }
   .memo.manual { border-left-color: #4aa3e0; }
   /* 쪽 위 그림 표시. 메모(4)보다 밑, 쪽보다 위. 누르는 것은 밑으로 통과시킨다 */
@@ -763,6 +782,23 @@
   .cliwarn .why { color: var(--muted); margin-bottom: 8px; }
   .cliwarn .row { display: flex; gap: 8px; }
   .cliwarn button { font-size: 12px; padding: 6px 10px; }
+  .cliwarn button.gone { display: none; }
+  /* 태블릿 연결 칸 — 로그인 칸 안에 같이 둔다. 둘 다 "AI가 어디로 가나"의 이야기다 */
+  .pair { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--rule); }
+  .pair .ph { font-weight: 600; margin-bottom: 4px; }
+  .pair .pcode { font-size: 13px; color: var(--muted); }
+  .pair .pcode b {
+    font: 600 20px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace;
+    letter-spacing: 2px; color: var(--text);
+  }
+  .pair ul { margin: 6px 0; padding-left: 18px; font-size: 13px; }
+  .pair .hint { font-size: 12.5px; color: var(--muted); }
+  .pair input {
+    width: 100%; box-sizing: border-box; margin: 3px 0 7px;
+    font-size: 15px; padding: 8px 10px;
+    border: 1px solid var(--rule); border-radius: 10px; background: #fff;
+  }
+  .pair label { font-size: 12.5px; color: var(--muted); }
   .cliwarn code {
     background: var(--ink);
     padding: 1px 5px;
@@ -1235,11 +1271,24 @@
   .pageflip.gone { display: none; }
 
 
+  /*
+   * 좁으면(태블릿 세로) 정리 칸을 아래로 내린다.
+   *
+   * 옆 패널 자리를 비워 두라는 --pane-w를 0으로 돌려야 한다. 안 그러면 다음 쪽
+   * 화살표가 사라진 패널 폭만큼 안쪽, 화면 한가운데에 떠 있었다. 화살표 높이도
+   * 쪽 칸의 가운데로 맞춘다 — 아래 정리 칸까지 친 가운데는 쪽보다 한참 아래다.
+   */
   @media (max-width: 820px) {
+    #root { --pane-w: 0px; --notes-h: min(350px, 46vh); }
     .main { flex-direction: column; }
-    .notes { width: auto; border-left: 0; border-top: 1px solid var(--rule); max-height: 46vh; }
+    .notes { width: auto; border-left: 0; border-top: 1px solid var(--rule); flex-basis: var(--notes-h); max-height: var(--notes-h); }
     .stage { padding: 12px; }
-    .pagebadge { right: 16px; bottom: calc(46vh + 16px); }
+    .pagebadge { right: 16px; bottom: calc(var(--notes-h) + 16px); }
+    .pageflip { top: calc((100% - var(--notes-h)) / 2); }
+  }
+  /* 손가락에는 "가져가면 또렷해짐"이 없다. 처음부터 좀 더 또렷하게 둔다 */
+  @media (pointer: coarse) {
+    .pageflip { opacity: 0.55; }
   }
 </style>
 
@@ -1356,6 +1405,7 @@
         <button class="primary" id="cliLogin">로그인 창 열기</button>
         <button id="cliRecheck">다시 확인</button>
       </div>
+      <div class="pair" id="pairBox"></div>
     </div>
     <div class="askbar">
       <button class="scope" id="qscope" title="질문 범위를 바꿉니다" disabled>이 쪽</button>
@@ -1419,8 +1469,62 @@
 
   var $ = function (id) { return document.getElementById(id); };
 
+  /*
+   * 서버를 부르는 길을 한 곳으로 모은다.
+   *
+   * PC에서는 같은 주소의 server.js를 부른다. 태블릿에서는 Claude Code가 돌지
+   * 않으므로 멀리 있는 PC의 server.js를 부르고, 그 PC가 구독으로 답을 받아
+   * 넘긴다. 이때는 연결 코드를 붙여야 PC가 받아 준다.
+   *
+   * 태블릿 앱은 화면(이 파일)을 앱 안에 담아 두고 AI만 PC에 묻는다. PC 화면을
+   * 통째로 띄우지 않는 까닭은 메모 저장소 때문이다 — IndexedDB는 주소마다
+   * 따로 노는데, 집(와이파이 주소)과 강의실(Tailscale 주소)에서 PC 주소가
+   * 달라지면 메모가 둘로 갈라진다. 화면이 앱 안에 있으면 주소가 늘 같다.
+   */
+  var IS_TABLET_APP = !!window.CapnoteAndroid;
+  var IS_REMOTE = IS_TABLET_APP || !/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+  var PC_PORT = 45873;                       // 설치한 앱(Electron)이 잡는 포트
+  var link = { base: "", key: "" };
+  try {
+    link.base = localStorage.getItem("capnote:pc") || "";
+    link.key = localStorage.getItem("capnote:key") || "";
+  } catch (e) {}
+  if (!IS_TABLET_APP) link.base = "";        // 브라우저로 PC 주소를 열었으면 그 주소가 곧 PC다
+
+  // "100.1.2.3", "192.168.0.5:5173", "http://..." 무엇으로 적어도 받는다
+  function normBase(t) {
+    t = String(t || "").trim().replace(/\/+$/, "");
+    if (!t) return "";
+    if (!/^https?:\/\//i.test(t)) t = "http://" + t;
+    if (!/:\d+$/.test(t.replace(/^https?:\/\//i, ""))) t += ":" + PC_PORT;
+    return t;
+  }
+
+  async function api(p, opts) {
+    opts = opts || {};
+    if (IS_TABLET_APP && !link.base) {
+      throw new Error("아직 PC에 연결하지 않았습니다. 위 줄의 상태 칩을 눌러 PC 주소와 연결 코드를 넣으세요.");
+    }
+    var h = {};
+    Object.keys(opts.headers || {}).forEach(function (k) { h[k] = opts.headers[k]; });
+    if (IS_REMOTE && link.key) h["X-Capnote-Key"] = link.key;
+    var ctl = opts.timeout ? new AbortController() : null;
+    var tm = ctl ? setTimeout(function () { ctl.abort(); }, opts.timeout) : null;
+    try {
+      return await fetch(link.base + p, {
+        method: opts.method || "GET", headers: h, body: opts.body,
+        signal: ctl ? ctl.signal : undefined
+      });
+    } catch (e) {
+      // 망이 끊긴 것을 "Failed to fetch"로 보여 주면 무엇을 할지 모른다
+      throw new Error(IS_REMOTE
+        ? "PC에 닿지 않습니다 — PC에서 오려둔 공책이 켜져 있는지, 잠자기 상태는 아닌지, 주소가 맞는지 보세요."
+        : String(e.message || e));
+    } finally { if (tm) clearTimeout(tm); }
+  }
+
   // 버전 표시. 실패해도 조용히 넘어간다 — 이것 때문에 앱이 안 뜨면 안 된다
-  fetch("/api/version")
+  api("/api/version")
     .then(function (r) { return r.json(); })
     .then(function (d) { $("ver").textContent = "v" + d.version; })
     .catch(function () {});
@@ -1489,8 +1593,18 @@
 
   function checkCli() {
     setChip("", "확인 중…");
-    return fetch("/api/status")
-      .then(function (r) { return r.json(); })
+    if (IS_TABLET_APP && !link.base) {
+      setChip("need", "PC 연결 필요");
+      showCliWarn("이 태블릿은 PC를 거쳐 정리를 받습니다. PC에서 오려둔 공책을 켜고, " +
+                  "그 화면의 상태 칩을 눌러 나오는 주소와 연결 코드를 아래에 넣으세요.", true);
+      renderPair();
+      return Promise.resolve(false);
+    }
+    return api("/api/status", { timeout: 9000 })
+      .then(function (r) {
+        if (r.status === 401) throw { key: true };
+        return r.json();
+      })
       .then(function (d) {
         localAI = d.local || localAI;
         syncEngine();
@@ -1502,7 +1616,8 @@
          * 숨겨 둘 까닭이 없다. 생각 깊이(effort)는 한국어로 붙인다.
          */
         var who = d.model ? modelName(d.model) + (d.effort ? " · " + effortName(d.effort) : "") : "";
-        $("chip").title = (d.model ? "답하는 모델: " + d.model + (d.effort ? " · 생각 깊이 " + d.effort + "(" + effortName(d.effort) + ")" : "") + "\n" : "") +
+        $("chip").title = (IS_REMOTE ? "PC(" + (link.base || location.host) + ")를 거쳐 답을 받습니다\n" : "") +
+                          (d.model ? "답하는 모델: " + d.model + (d.effort ? " · 생각 깊이 " + d.effort + "(" + effortName(d.effort) + ")" : "") + "\n" : "") +
                           "누르면 Claude Code 로그인 상태를 봅니다";
         if (d.mode !== "cli") {              // API 모드면 Claude Code가 필요 없다
           setChip("ready", who ? "API · " + who : "API 모드", d.model ? modelName(d.model) : "");
@@ -1510,6 +1625,15 @@
           return true;
         }
         var c = d.claude || {};
+        // 태블릿에서는 설치·로그인 모두 PC 쪽 일이다. 여기서 할 수 있는 게 없다는 것까지 말한다
+        if (IS_REMOTE && (!c.installed || !c.loggedIn)) {
+          setChip("need", !c.installed ? "PC에 Claude Code 없음" : "PC 로그인 필요");
+          showCliWarn("PC에는 닿았는데 그 PC의 Claude Code가 " +
+                      (!c.installed ? "설치돼 있지 않습니다" : "로그인돼 있지 않습니다") +
+                      ". PC에서 오려둔 공책 화면의 상태 칩을 눌러 해결한 뒤 “다시 확인”을 누르세요.", true);
+          renderPair();
+          return false;
+        }
         if (!c.installed) {
           setChip("need", "Claude Code 설치 필요");
           showCliWarn(
@@ -1526,6 +1650,13 @@
           return false;
         }
         setChip("ready", who || "Claude 준비됨", d.model ? modelName(d.model) : "");
+        if (IS_REMOTE) {
+          showCliWarn("PC(" + (link.base || location.host).replace(/^https?:\/\//, "") + ")에 연결됐습니다. " +
+                      "정리는 그 PC에서 로그인한 Claude 계정으로 받습니다" +
+                      (d.model ? " (" + d.model + " · 생각 깊이 " + effortName(d.effort) + ")" : "") + ".", false);
+          $("cliwarn").classList.remove("on");
+          return true;
+        }
         showCliWarn(
           "Claude Code에 로그인돼 있습니다" + (c.version ? " (" + c.version + ")" : "") + ".<br />" +
           (d.model ? "답하는 모델은 <b>" + d.model + "</b>, 생각 깊이는 <b>" + effortName(d.effort) + "</b>입니다.<br />" : "") +
@@ -1533,7 +1664,17 @@
         $("cliwarn").classList.remove("on");
         return true;
       })
-      .catch(function () {
+      .catch(function (e) {
+        if (IS_REMOTE) {
+          // 멀리서 부를 때는 확인 실패가 곧 "정리가 안 된다"이다. 무엇을 할지 바로 보여 준다
+          setChip("need", e && e.key ? "연결 코드 확인" : "PC에 닿지 않음");
+          showCliWarn(e && e.key
+            ? "PC가 연결 코드를 받아 주지 않습니다. PC 화면의 상태 칩을 눌러 코드를 다시 확인하세요."
+            : "PC에 닿지 않습니다. PC에서 오려둔 공책이 켜져 있는지, 잠자기 상태는 아닌지, " +
+              "멀리 있다면 PC와 태블릿 둘 다 Tailscale이 켜져 있는지 보세요.", true);
+          renderPair();
+          return false;
+        }
         setChip("", "상태 확인 실패");
         return true;                          // 확인이 안 될 뿐이니 굳이 막지 않는다
       });
@@ -1551,7 +1692,7 @@
     var b = $("cliLogin");
     b.disabled = true;
     b.textContent = "여는 중…";
-    fetch("/api/login", { method: "POST" })
+    api("/api/login", { method: "POST" })
       .then(function (r) { return r.json(); })
       .then(function (d) {
         b.textContent = d.ok ? "터미널을 열었습니다" : "열지 못했습니다";
@@ -1577,6 +1718,100 @@
       ? "이제 정리는 이 컴퓨터의 " + localAI.text + "이(가) 합니다."
       : "이제 정리는 클로드가 합니다.");
   };
+
+  /*
+   * 태블릿 연결 칸.
+   *
+   * PC에서는 태블릿에 넣을 주소와 코드를 보여 준다. 태블릿에서는 그걸 넣는
+   * 칸을 보여 준다. 멀리서 쓰려면 Tailscale 주소(100.x)를 넣으면 된다 —
+   * 거리와 상관없이 같은 망처럼 닿고, 오가는 내용도 암호화된다.
+   */
+  function renderPair() {
+    var box = $("pairBox");
+    if (!box) return;
+    box.innerHTML = "";
+    var head = document.createElement("div");
+    head.className = "ph";
+
+    if (!IS_REMOTE) {
+      head.textContent = "태블릿에서 쓰기";
+      box.appendChild(head);
+      api("/api/pair", { timeout: 5000 }).then(function (r) { return r.json(); }).then(function (d) {
+        var code = document.createElement("div");
+        code.className = "pcode";
+        code.innerHTML = "연결 코드 <b></b>";
+        code.querySelector("b").textContent = d.key.slice(0, 4) + " " + d.key.slice(4);
+        box.appendChild(code);
+        var ul = document.createElement("ul");
+        var hasTs = false;
+        (d.addrs || []).forEach(function (a) {
+          var li = document.createElement("li");
+          if (a.kind === "tailscale") hasTs = true;
+          li.textContent = (a.kind === "tailscale" ? "어디서나 (Tailscale) " : "같은 와이파이 ") + a.ip + ":" + d.port;
+          ul.appendChild(li);
+        });
+        if (ul.children.length) box.appendChild(ul);
+        var hint = document.createElement("div");
+        hint.className = "hint";
+        hint.textContent = "태블릿 앱의 상태 칩을 눌러 위 주소 하나와 코드를 넣으세요. " +
+          (hasTs ? "Tailscale 주소는 멀리 떨어져 있어도 닿습니다. "
+                 : "멀리서도 쓰려면 이 PC와 태블릿에 Tailscale을 깔고 같은 계정으로 로그인하세요. ") +
+          "그동안 이 PC는 켜져 있어야 합니다(잠자기 끄기).";
+        box.appendChild(hint);
+      }).catch(function () { box.innerHTML = ""; });
+      return;
+    }
+
+    head.textContent = "PC에 연결";
+    box.appendChild(head);
+    var addr = null;
+    if (IS_TABLET_APP) {
+      var la = document.createElement("label");
+      la.textContent = "PC 주소";
+      addr = document.createElement("input");
+      addr.type = "text";
+      addr.inputMode = "url";
+      addr.autocapitalize = "off";
+      addr.placeholder = "예: 100.101.102.103 (PC 화면에 나온 주소)";
+      addr.value = link.base.replace(/^https?:\/\//, "").replace(":" + PC_PORT, "");
+      box.appendChild(la); box.appendChild(addr);
+    }
+    var lk = document.createElement("label");
+    lk.textContent = "연결 코드";
+    var key = document.createElement("input");
+    key.type = "text";
+    key.autocapitalize = "characters";
+    key.placeholder = "PC 화면에 나온 8글자";
+    key.value = link.key;
+    box.appendChild(lk); box.appendChild(key);
+    var go = document.createElement("button");
+    go.className = "primary";
+    go.textContent = "연결";
+    go.onclick = function () {
+      if (addr) link.base = normBase(addr.value);
+      link.key = key.value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+      try {
+        localStorage.setItem("capnote:pc", link.base);
+        localStorage.setItem("capnote:key", link.key);
+      } catch (e) {}
+      go.textContent = "확인 중…";
+      checkCli().then(function (ok) {
+        go.textContent = "연결";
+        if (ok) setStatus("PC에 연결됐습니다. 이제 오려내면 PC를 거쳐 정리를 받습니다.");
+      });
+    };
+    [addr, key].forEach(function (i) {
+      if (!i) return;
+      i.addEventListener("keydown", function (e) {
+        e.stopPropagation();                 // 쪽 넘기기 단축키가 끼어들지 않게
+        if (e.key === "Enter") go.onclick();
+      });
+    });
+    box.appendChild(go);
+  }
+  // 로그인 창은 PC에 터미널을 여는 단추다. 태블릿에서는 누를 까닭이 없다
+  if (IS_REMOTE) $("cliLogin").classList.add("gone");
+  renderPair();
 
   $("cliRecheck").onclick = function () {
     $("cliRecheck").textContent = "확인 중…";
@@ -2571,7 +2806,39 @@
   function bindSelection(layer) {
     var box = null, start = null, wasSel = null;
 
+    /*
+     * 태블릿에서의 손가락.
+     *
+     * 마우스는 하나라 "누르고 끌면 오린다" 하나로 됐다. 손가락은 오리기와
+     * 넘기기·확대가 같은 동작으로 겹친다. 그래서 갈랐다 — 한 손가락이나 펜은
+     * 마우스와 같이 오리고, 두 손가락은 끌어서 옮기고 벌려서 키운다.
+     * 두 번째 손가락이 닿는 순간 그리던 오리기 상자는 버린다. 확대하려다
+     * 엉뚱한 곳이 오려지면 안 된다.
+     */
+    var fingers = {}, pinch = null;
+    function fingerCount() { return Object.keys(fingers).length; }
+    function twoFingers() {
+      var ids = Object.keys(fingers), a = fingers[ids[0]], b = fingers[ids[1]];
+      return { mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2, d: Math.hypot(a.x - b.x, a.y - b.y) || 1 };
+    }
+    function dropBox() {
+      if (box) box.remove();
+      box = null; start = null;
+    }
+
     layer.addEventListener("pointerdown", function (e) {
+      if (e.pointerType === "touch") {
+        fingers[e.pointerId] = { x: e.clientX, y: e.clientY };
+        if (fingerCount() >= 2) {
+          dropBox();
+          var st = $("stage"), t = twoFingers();
+          pinch = { mx: t.mx, my: t.my, d: t.d, sl: st.scrollLeft, stp: st.scrollTop, scale: state.scale };
+          // 둘째 손가락도 붙잡아 둔다. 쪽 밖으로 미끄러져도 움직임을 놓치지 않게
+          try { layer.setPointerCapture(e.pointerId); } catch (er) {}
+          return;
+        }
+      }
+      if (pinch) return;                       // 두 손가락을 떼는 중에는 오리지 않는다
       if (e.target !== layer) return;
       // 누르는 순간 고르기를 푼다. 같은 자국을 다시 눌러 끄려면 뭐가 골라져
       // 있었는지 기억해 둬야 한다
@@ -2587,6 +2854,16 @@
     });
 
     layer.addEventListener("pointermove", function (e) {
+      if (fingers[e.pointerId]) fingers[e.pointerId] = { x: e.clientX, y: e.clientY };
+      if (pinch && fingerCount() >= 2) {
+        var st = $("stage"), t = twoFingers();
+        st.scrollLeft = pinch.sl - (t.mx - pinch.mx);
+        st.scrollTop = pinch.stp - (t.my - pinch.my);
+        var want = pinch.scale * t.d / pinch.d;
+        // 손이 떨리는 정도로는 배율을 건드리지 않는다 — 옮기려다 자꾸 커지면 거슬린다
+        if (Math.abs(want - state.scale) > 0.04 && Math.abs(t.d / pinch.d - 1) > 0.08) zoomPdf(want - state.scale);
+        return;
+      }
       if (!start || !box) return;
       var r = layer.getBoundingClientRect();
       var x = e.clientX - r.left, y = e.clientY - r.top;
@@ -2615,7 +2892,18 @@
       return hit;
     }
 
+    function lift(e) {
+      delete fingers[e.pointerId];
+      if (pinch && fingerCount() === 0) pinch = null;
+    }
+
+    // 손가락·펜으로 두 번 톡 — 더블클릭과 같은 일(그 자리에 메모)을 한다
+    var lastTap = null, tapMemoAt = 0;
+
     function finish(e) {
+      var wasPinch = !!pinch;
+      lift(e);
+      if (wasPinch) return;
       if (!start || !box) return;
       var r = layer.getBoundingClientRect();
       var x = e.clientX - r.left, y = e.clientY - r.top;
@@ -2627,6 +2915,16 @@
 
       // 끌지 않고 톡 눌렀다 — 그 자리의 형광펜을 고른다
       if (rect.w < 6 && rect.h < 6) {
+        if (e.pointerType !== "mouse") {
+          var now = Date.now();
+          if (lastTap && now - lastTap.t < 380 && Math.hypot(x - lastTap.x, y - lastTap.y) < 28) {
+            lastTap = null;
+            tapMemoAt = now;
+            memoHere(x, y);
+            return;
+          }
+          lastTap = { t: now, x: x, y: y };
+        }
         var mk = markAt(x, y);
         if (mk) {
           state.selMark = wasSel === mk.id ? null : mk.id;
@@ -2644,16 +2942,21 @@
     }
 
     layer.addEventListener("pointerup", finish);
-    layer.addEventListener("pointercancel", function () {
-      if (box) box.remove();
-      box = null; start = null;
+    layer.addEventListener("pointercancel", function (e) {
+      lift(e);
+      dropBox();
     });
 
     // 직접 쓰는 메모: 빈 곳을 더블클릭하면 그 자리에 생기고 바로 고칠 수 있다
     layer.addEventListener("dblclick", function (e) {
       if (e.target !== layer) return;
+      // 두 번 톡으로 이미 만들었다. 브라우저가 dblclick을 덧붙여 보내도 하나만 만든다
+      if (Date.now() - tapMemoAt < 800) return;
       var r = layer.getBoundingClientRect();
-      var px = e.clientX - r.left, py = e.clientY - r.top;
+      memoHere(e.clientX - r.left, e.clientY - r.top);
+    });
+
+    function memoHere(px, py) {
       var slot = slotAt(px);
       if (!slot) return;
       var at = { x: (px - slot.x) / slot.w, y: (py - slot.y) / slot.h };
@@ -2681,7 +2984,7 @@
         drawMemos(); renderCards();
         setStatus("되돌렸습니다.");
       });
-    });
+    }
   }
 
   /* ---------- 잘라내기 + 텍스트 뽑기 ---------- */
@@ -2833,7 +3136,7 @@
   /* ---------- Claude 호출 ---------- */
 
   async function callClaude(messages) {
-    var res = await fetch("/api/ask", {
+    var res = await api("/api/ask", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       // 어느 길로 갈지는 서버가 정하지만, 로컬을 고른 건 사람이다
@@ -4505,7 +4808,7 @@
       var n = pages[i];
       try {
         var cv = await cropFromPdf(n, { x: 0, y: 0, w: 1, h: 1 }, 1400);
-        var r = await fetch("/api/ocr", {
+        var r = await api("/api/ocr", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ image: cv.toDataURL("image/jpeg", 0.8).split(",")[1] })
@@ -5974,6 +6277,29 @@
 
   var openUrl = null;
 
+  /*
+   * 안드로이드 앱에 파일을 넘긴다. 한 번에 넘기면 수십 MB짜리 PDF가 문자열
+   * 하나가 되어 앱이 버벅이므로 조각으로 나눈다. 조각 크기는 3의 배수여야
+   * base64를 이어 붙여도 깨지지 않는다.
+   */
+  async function saveViaApp(blob, name) {
+    var A = window.CapnoteAndroid;
+    try {
+      var id = A.saveBegin(name, blob.type || "application/octet-stream");
+      if (!id) return "";
+      var CH = 3 * 256 * 1024;
+      for (var o = 0; o < blob.size; o += CH) {
+        var buf = new Uint8Array(await blob.slice(o, o + CH).arrayBuffer());
+        var bin = "";
+        for (var i = 0; i < buf.length; i += 0x8000) {
+          bin += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+        }
+        if (!A.saveChunk(id, btoa(bin))) return "";
+      }
+      return A.saveEnd(id);
+    } catch (e) { return ""; }
+  }
+
   function closeSheet() {
     var v = document.querySelector(".veil");
     if (v) v.remove();
@@ -6026,6 +6352,20 @@
       a.href = openUrl;
       a.download = opts.filename;
       a.textContent = "내려받기";
+      /*
+       * 안드로이드 앱 안에서는 이 링크가 아무 일도 하지 않는다 — 웹뷰는 blob
+       * 주소를 내려받을 줄 모른다. 앱에 조각조각 넘겨 다운로드 폴더에 쓰게 한다.
+       */
+      if (IS_TABLET_APP) {
+        a.onclick = function (e) {
+          e.preventDefault();
+          a.textContent = "저장하는 중…";
+          saveViaApp(opts.blob, opts.filename).then(function (where) {
+            a.textContent = where ? "저장했습니다" : "저장하지 못했습니다";
+            setStatus(where ? "다운로드 폴더에 " + opts.filename + "(으)로 저장했습니다." : "파일을 저장하지 못했습니다.", !where);
+          });
+        };
+      }
       foot.appendChild(a);
     }
 

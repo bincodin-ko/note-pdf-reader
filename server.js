@@ -15,6 +15,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { execFile, spawn } = require("node:child_process");
+const crypto = require("node:crypto");
 
 const PORT = process.env.PORT || 5173;
 
@@ -487,7 +488,109 @@ function openLoginTerminal() {
   });
 }
 
+/*
+ * 태블릿 연결
+ *
+ * 안드로이드에서는 Claude Code가 돌지 않는다. 그래서 태블릿 앱은 정리를
+ * 이 PC에 부탁하고, 이 PC가 늘 하던 대로 구독(claude -p)으로 받아 넘긴다.
+ * 거리는 상관없다 — 같은 와이파이면 그 주소로, 멀리 있으면 Tailscale
+ * 주소(100.x)로 닿는다.
+ *
+ * 대신 이제 이 PC 밖에서도 부를 수 있으니 아무나 쓰면 안 된다. 같은 망의
+ * 다른 사람이 이 사람 구독으로 정리를 받아 가거나, PC에서 연 아무 웹페이지가
+ * 몰래 /api/ask를 부를 수 있다. 그래서:
+ *   - 이 PC 안의 이 앱 화면(같은 주소)에서 온 것만 코드 없이 통과
+ *   - 나머지는 연결 코드(X-Capnote-Key)가 맞아야 통과
+ *   - 로그인 창 열기와 코드 알려 주기는 이 PC 안에서만
+ * 코드는 한 번 만들어 ~/.capnote/pair.json에 둔다. 켤 때마다 바뀌면 태블릿에
+ * 매번 다시 넣어야 한다.
+ */
+const PAIR_ABC = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";   // 헷갈리는 0/O, 1/I는 뺐다
+function loadPairKey() {
+  if (process.env.CAPNOTE_PAIR_KEY) return process.env.CAPNOTE_PAIR_KEY.toUpperCase();
+  const file = path.join(os.homedir(), ".capnote", "pair.json");
+  try {
+    const k = JSON.parse(fs.readFileSync(file, "utf8")).key;
+    if (/^[A-Z2-9]{8}$/.test(k)) return k;
+  } catch (e) { /* 없으면 새로 만든다 */ }
+  let k = "";
+  for (let i = 0; i < 8; i++) k += PAIR_ABC[crypto.randomInt(PAIR_ABC.length)];
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ key: k }), { mode: 0o600 });
+  } catch (e) { /* 못 적으면 이번에만 쓰는 코드가 된다 */ }
+  return k;
+}
+const PAIR_KEY = loadPairKey();
+
+function isLoopback(req) {
+  const a = req.socket.remoteAddress || "";
+  return a === "127.0.0.1" || a === "::1" || a === "::ffff:127.0.0.1";
+}
+// 이 앱 화면에서 온 요청인가. 다른 웹페이지가 보낸 요청에는 그 페이지의 Origin이 붙는다
+function sameOrigin(req) {
+  const o = req.headers.origin;
+  if (!o) return true;
+  try { return new URL(o).host === req.headers.host; } catch (e) { return false; }
+}
+function keyOk(req) {
+  const k = String(req.headers["x-capnote-key"] || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (k.length !== PAIR_KEY.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(k), Buffer.from(PAIR_KEY));
+}
+
+// 이 PC에 닿을 수 있는 주소들. 100.64.0.0/10은 Tailscale이 쓰는 대역이다
+function pairAddrs() {
+  const out = [];
+  const nets = os.networkInterfaces();
+  Object.keys(nets).forEach(function (name) {
+    (nets[name] || []).forEach(function (n) {
+      if (n.family !== "IPv4" && n.family !== 4) return;
+      if (n.internal) return;
+      const p = n.address.split(".").map(Number);
+      const ts = p[0] === 100 && p[1] >= 64 && p[1] <= 127;
+      out.push({ ip: n.address, kind: ts ? "tailscale" : "lan", name: name });
+    });
+  });
+  // 어디서나 닿는 Tailscale 주소를 먼저 보여 준다
+  return out.sort(function (a, b) { return (a.kind === "tailscale" ? 0 : 1) - (b.kind === "tailscale" ? 0 : 1); });
+}
+
 http.createServer((req, res) => {
+  /*
+   * 태블릿 앱은 다른 주소(앱 안의 페이지)에서 부르므로 CORS 허락이 필요하다.
+   * 허락해도 위의 연결 코드가 없으면 아무것도 못 한다.
+   */
+  const origin = req.headers.origin;
+  if (origin && !sameOrigin(req)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Capnote-Key");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    // 크롬은 공개 주소의 페이지가 사설망(192.168.x, 100.x)을 부를 때 이 허락을 따로 묻는다
+    res.setHeader("Access-Control-Allow-Private-Network", "true");
+    res.setHeader("Access-Control-Max-Age", "600");
+  }
+  if (req.method === "OPTIONS") { res.writeHead(204); return res.end(); }
+
+  const trusted = isLoopback(req) && sameOrigin(req);
+  if (req.url.startsWith("/api/") && !trusted) {
+    // PC 안에서만 하는 일 — 남의 PC에 터미널을 띄우거나 코드를 알려 줄 까닭이 없다
+    if (req.url === "/api/login" || req.url === "/api/pair") {
+      return send(res, 403, JSON.stringify({ error: "이 PC 안에서만 할 수 있습니다" }));
+    }
+    if (!keyOk(req)) {
+      // 틀리면 조금 기다리게 한다. 코드를 하나씩 대 보는 것을 늦춘다
+      return setTimeout(function () {
+        send(res, 401, JSON.stringify({ error: "연결 코드가 맞지 않습니다", need: "key" }));
+      }, 700);
+    }
+  }
+
+  if (req.url === "/api/pair") {
+    return send(res, 200, JSON.stringify({ key: PAIR_KEY, port: Number(PORT), addrs: pairAddrs() }));
+  }
+
   if (req.method === "POST" && req.url === "/api/ask") return ask(req, res);
 
   if (req.method === "POST" && req.url === "/api/ocr") return ocr(req, res);
@@ -520,6 +623,8 @@ http.createServer((req, res) => {
 }).listen(PORT, () => {
   console.log(`\n  오려둔 공책 v${VERSION} → http://localhost:${PORT}`);
   console.log(`  모드: ${MODE_LABEL}  [${MODE}]`);
+  const ts = pairAddrs().filter(function (a) { return a.kind === "tailscale"; })[0];
+  console.log(`  태블릿 연결: 코드 ${PAIR_KEY}` + (ts ? ` · 어디서나 ${ts.ip}:${PORT} (Tailscale)` : ""));
 
   if (API_NO_KEY) {
     console.log("  !! CLAUDE_USE_API=1을 켰지만 ANTHROPIC_API_KEY가 없어 구독 경로로 돌아갑니다.");

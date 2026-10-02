@@ -3,3 +3,7 @@ dist/
 .DS_Store
 *.log
 .env
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
