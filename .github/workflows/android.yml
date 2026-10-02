@@ -1,0 +1,51 @@
+# 안드로이드(태블릿) 앱을 만든다.
+#
+# 화면은 public/ 그대로이고, 이 빌드는 그걸 웹뷰 껍데기(android/)에 담기만 한다.
+# 화면이나 껍데기가 바뀌면 어느 가지에서든 바로 만들어 본다 — 깨진 걸 main에
+# 합친 뒤에야 알면 늦다. "설치파일 빌드"도 이걸 불러 다른 OS와 같이 올린다.
+name: 안드로이드 APK 빌드
+
+on:
+  push:
+    paths:
+      - "android/**"
+      - "public/**"
+      - "package.json"
+      - ".github/workflows/android.yml"
+  workflow_dispatch:
+  workflow_call:
+
+jobs:
+  apk:
+    name: Android (apk)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # gradle wrapper를 저장소에 두지 않는다(바이너리 jar를 들이지 않으려고). 버전을 박아 둔다
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14.3"
+
+      - name: APK 만들기
+        run: gradle -p android assembleRelease --no-daemon --stacktrace
+
+      - name: 이름 붙이기
+        shell: bash
+        run: |
+          ver=$(node -p "require('./package.json').version")
+          if [ "$GITHUB_REF_TYPE" != "tag" ]; then ver="$ver-build.${{ github.run_number }}"; fi
+          mkdir -p dist
+          cp android/app/build/outputs/apk/release/app-release.apk "dist/오려둔 공책-$ver.apk"
+          ls -la dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: dist/*.apk
+          if-no-files-found: error

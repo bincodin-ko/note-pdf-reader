@@ -1,0 +1,17 @@
+// 안드로이드 껍데기. 앱 화면은 ../public 을 그대로 담아 간다 — 고칠 곳은 늘 한 곳이다
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+rootProject.name = "capnote"
+include ":app"
